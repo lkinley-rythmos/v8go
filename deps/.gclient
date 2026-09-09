@@ -4,6 +4,11 @@ solutions = [
     "url"        : "https://chromium.googlesource.com/v8/v8.git",
     "deps_file"  : "DEPS",
     "managed"    : False,
+    # Suppress upstream test archives; v8go runs its own consumer tests.
+    "custom_hooks": [
+      {"name": "wasm_spec_tests"},
+      {"name": "wasm_js"},
+    ],
     "custom_deps": {
       # These deps are unnecessary for building.
       #

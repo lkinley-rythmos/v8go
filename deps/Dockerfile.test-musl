@@ -1,0 +1,6 @@
+ARG ALPINE_VERSION=3.24.1
+FROM alpine:${ALPINE_VERSION}
+# Consumers build with their distribution's compiler and the packaged libc++.
+RUN apk add --no-cache build-base clang22 lld22 compiler-rt go python3 linux-headers binutils
+ENV CC=clang-22 CXX=clang++-22
+WORKDIR /workspace

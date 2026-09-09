@@ -123,6 +123,44 @@ typedef struct {
 } RtnValue;
 
 typedef struct {
+  RtnValue result;
+  int not_function;
+} RtnMethod;
+
+typedef struct {
+  int status;  // 1: success, 0: JS error, -1: bounds, -2: invalid value
+  RtnError error;
+} RtnStatus;
+
+enum PrimitiveKind {
+  PrimitiveHandle,
+  PrimitiveString,
+  PrimitiveInt32,
+  PrimitiveUint32,
+  PrimitiveInt64,
+  PrimitiveUint64,
+  PrimitiveNumber,
+  PrimitiveBoolean,
+  PrimitiveWords
+};
+
+// Pointer-free descriptor; borrowed bytes/words are separate call arguments.
+typedef struct {
+  int kind;
+  int length;
+  int64_t signed_value;
+  uint64_t unsigned_value;
+  double number;
+} PrimitiveValue;
+
+enum PropertyTarget { PropertyNamed, PropertyIndexed, PropertyInternal };
+
+typedef struct {
+  size_t offset;
+  int length;
+} PropertyName;
+
+typedef struct {
   const char* data;
   int length;
   RtnError error;
@@ -155,12 +193,15 @@ extern void IsolateDispose(IsolatePtr ptr);
 extern void IsolateTerminateExecution(IsolatePtr ptr);
 extern int IsolateIsExecutionTerminating(IsolatePtr ptr);
 extern IsolateHStatistics IsolationGetHeapStatistics(IsolatePtr ptr);
+extern int IsolateRetainedValueCount(IsolatePtr ptr);
 
 extern ValuePtr IsolateThrowException(IsolatePtr iso, ValuePtr value);
 
 extern RtnUnboundScript IsolateCompileUnboundScript(IsolatePtr iso_ptr,
                                                     const char* source,
+                                                    int source_len,
                                                     const char* origin,
+                                                    int origin_len,
                                                     CompileOptions options);
 extern ScriptCompilerCachedData* UnboundScriptCreateCodeCache(
     IsolatePtr iso_ptr,
@@ -183,18 +224,22 @@ extern int ContextRetainedValueCount(ContextPtr ctx);
 extern void ContextFree(ContextPtr ptr);
 extern RtnValue RunScript(ContextPtr ctx_ptr,
                           const char* source,
-                          const char* origin);
-extern RtnValue JSONParse(ContextPtr ctx_ptr, const char* str);
+                          int source_len,
+                          const char* origin,
+                          int origin_len);
+extern RtnValue JSONParse(ContextPtr ctx_ptr, const char* str, int length);
 const char* JSONStringify(ContextPtr ctx_ptr, ValuePtr val_ptr);
 extern ValuePtr ContextGlobal(ContextPtr ctx_ptr);
 
 extern void TemplateFreeWrapper(TemplatePtr ptr);
 extern void TemplateSetValue(TemplatePtr ptr,
                              const char* name,
+                             int name_len,
                              ValuePtr val_ptr,
                              int attributes);
 extern void TemplateSetTemplate(TemplatePtr ptr,
                                 const char* name,
+                                int name_len,
                                 TemplatePtr obj_ptr,
                                 int attributes);
 
@@ -288,16 +333,37 @@ int ValueIsProxy(ValuePtr ptr);
 int ValueIsWasmModuleObject(ValuePtr ptr);
 int ValueIsModuleNamespaceObject(ValuePtr ptr);
 
-extern void ObjectSet(ValuePtr ptr, const char* key, ValuePtr val_ptr);
-extern void ObjectSetIdx(ValuePtr ptr, uint32_t idx, ValuePtr val_ptr);
-extern int ObjectSetInternalField(ValuePtr ptr, int idx, ValuePtr val_ptr);
+extern RtnStatus ObjectSetValue(ValuePtr ptr,
+                                int target,
+                                const char* key,
+                                int key_length,
+                                uint32_t index,
+                                PrimitiveValue input,
+                                ValuePtr handle,
+                                const void* data);
+extern RtnStatus ObjectSetIdxHandle(ValuePtr ptr,
+                                    uint32_t index,
+                                    ValuePtr value);
+extern RtnStatus ObjectSetInternalHandle(ValuePtr ptr,
+                                         uint32_t index,
+                                         ValuePtr value);
+extern RtnStatus ObjectSetMany(ValuePtr ptr,
+                               const char* keys,
+                               const PropertyName* names,
+                               ValuePtr values[],
+                               size_t count);
 extern int ObjectInternalFieldCount(ValuePtr ptr);
-extern RtnValue ObjectGet(ValuePtr ptr, const char* key);
+extern RtnValue ObjectGet(ValuePtr ptr, const char* key, int key_length);
+extern RtnMethod ObjectMethodCall(ValuePtr ptr,
+                                  const char* key,
+                                  int key_length,
+                                  int argc,
+                                  ValuePtr args[]);
 extern RtnValue ObjectGetIdx(ValuePtr ptr, uint32_t idx);
 extern ValuePtr ObjectGetInternalField(ValuePtr ptr, int idx);
-int ObjectHas(ValuePtr ptr, const char* key);
+int ObjectHas(ValuePtr ptr, const char* key, int key_length);
 int ObjectHasIdx(ValuePtr ptr, uint32_t idx);
-int ObjectDelete(ValuePtr ptr, const char* key);
+int ObjectDelete(ValuePtr ptr, const char* key, int key_length);
 int ObjectDeleteIdx(ValuePtr ptr, uint32_t idx);
 
 extern RtnValue NewPromiseResolver(ContextPtr ctx_ptr);

@@ -9,6 +9,7 @@ package v8go
 import "C"
 
 import (
+	"runtime"
 	"sync"
 	"unsafe"
 )
@@ -87,10 +88,15 @@ type CompileOptions struct {
 // that code cache.
 // error will be of type `JSError` if not nil.
 func (i *Isolate) CompileUnboundScript(source, origin string, opts CompileOptions) (*UnboundScript, error) {
-	cSource := C.CString(source)
-	cOrigin := C.CString(origin)
-	defer C.free(unsafe.Pointer(cSource))
-	defer C.free(unsafe.Pointer(cOrigin))
+	source, origin = legacyString(source), legacyString(origin)
+	cSource, sourceLen, err := borrowedString(source)
+	if err != nil {
+		return nil, err
+	}
+	cOrigin, originLen, err := borrowedString(origin)
+	if err != nil {
+		return nil, err
+	}
 
 	var cOptions C.CompileOptions
 	if opts.CachedData != nil {
@@ -106,7 +112,9 @@ func (i *Isolate) CompileUnboundScript(source, origin string, opts CompileOption
 		cOptions.compileOption = C.int(opts.Mode)
 	}
 
-	rtn := C.IsolateCompileUnboundScript(i.ptr, cSource, cOrigin, cOptions)
+	rtn := C.IsolateCompileUnboundScript(i.ptr, cSource, sourceLen, cOrigin, originLen, cOptions)
+	runtime.KeepAlive(source)
+	runtime.KeepAlive(origin)
 	if rtn.ptr == nil {
 		return nil, newJSError(rtn.error)
 	}
@@ -167,6 +175,10 @@ func (i *Isolate) Close() {
 
 func (i *Isolate) apply(opts *contextOptions) {
 	opts.iso = i
+}
+
+func (i *Isolate) internalRetainedValueCount() int {
+	return int(C.IsolateRetainedValueCount(i.ptr))
 }
 
 func (i *Isolate) registerCallback(cb FunctionCallback) int {

@@ -17,7 +17,12 @@ branch="${1:-"$version"}"
 
 test -n "$branch"
 
+config=.gclient
+if [ "${V8_CUSTOM_TOOLCHAIN:-0}" = 1 ]; then
+  config=.gclient-custom
+fi
+
 (
   set -x
-  gclient sync --no-history --reset -r "$branch"
+  gclient sync --gclientfile "$config" --no-history --reset -r "$branch"
 )

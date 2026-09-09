@@ -1,0 +1,137 @@
+--- a/build/config/BUILDCONFIG.gn
++++ b/build/config/BUILDCONFIG.gn
+@@ -335,6 +335,11 @@
+ is_fuchsia = current_os == "fuchsia"
+ is_ios = current_os == "ios"
+ is_linux = current_os == "linux"
++declare_args() {
++  use_musl = false
++}
++# Build-time executables and proc macros keep the host's glibc ABI.
++is_musl = use_musl && is_linux
+ is_mac = current_os == "mac"
+ is_wasm = current_os == "emscripten"
+ is_watchos = current_os == "watchos"
+--- a/build/config/rust.gni
++++ b/build/config/rust.gni
+@@ -199,7 +199,14 @@
+ # (see '*_toolchain_supports_platform above') to enable experimentation with
+ # other toolchains.
+ rust_abi_target = ""
+-if (is_linux || is_chromeos) {
++if (is_musl) {
++  assert(current_cpu == "x64" || current_cpu == "arm64")
++  if (current_cpu == "arm64") {
++    rust_abi_target = "aarch64-unknown-linux-musl"
++  } else {
++    rust_abi_target = "x86_64-unknown-linux-musl"
++  }
++} else if (is_linux || is_chromeos) {
+   if (current_cpu == "arm64") {
+     rust_abi_target = "aarch64-unknown-linux-gnu"
+   } else if (current_cpu == "x86") {
+--- a/build/config/compiler_cpu_abi.gn
++++ b/build/config/compiler_cpu_abi.gn
+@@ -364,3 +364,20 @@
+     cpu_abi_ldflags += [ "-m64" ]
+   }
+ }
++
++# Apply musl only to the packaged library, never to host build tools.
++if (is_musl) {
++  _musl_cflags = []
++  foreach(flag, cpu_abi_cflags) {
++    _musl_cflags += [ string_replace(flag, "linux-gnu", "linux-musl") ]
++  }
++  cpu_abi_cflags = []
++  cpu_abi_cflags = _musl_cflags
++  _musl_ldflags = []
++  foreach(flag, cpu_abi_ldflags) {
++    _musl_ldflags += [ string_replace(flag, "linux-gnu", "linux-musl") ]
++  }
++  cpu_abi_ldflags = []
++  cpu_abi_ldflags = _musl_ldflags
++  cpu_abi_defines += [ "V8GO_USE_MUSL" ]
++}
+--- a/build/toolchain/linux/BUILD.gn
++++ b/build/toolchain/linux/BUILD.gn
+@@ -396,3 +396,15 @@
+     is_clang = false
+   }
+ }
++
++# Separate labels are required when host and target CPUs match but libc differs.
++foreach(cpu, [ "x64", "arm64" ]) {
++  clang_toolchain("clang_${cpu}_glibc") {
++    toolchain_args = {
++      current_cpu = cpu
++      current_os = "linux"
++      use_musl = false
++      target_sysroot = ""
++    }
++  }
++}
+--- a/build/toolchain/gcc_toolchain.gni
++++ b/build/toolchain/gcc_toolchain.gni
+@@ -921,6 +921,8 @@
+       # Populate toolchain args from the invoker.
+       forward_variables_from(invoker.toolchain_args, "*")
+       toolchain_for_rust_host_build_tools = true
++      use_musl = false
++      target_sysroot = ""
+
+       # The host build tools are static release builds to make the Chromium
+       # build faster.
+--- a/build/rust/known-target-triples.txt
++++ b/build/rust/known-target-triples.txt
+@@ -43,3 +43,6 @@
+ x86_64-unknown-linux-gnu
+ powerpc64le-unknown-linux-gnu
+ s390x-unknown-linux-gnu
++
++x86_64-unknown-linux-musl
++aarch64-unknown-linux-musl
+--- a/buildtools/third_party/libc++/__config_site
++++ b/buildtools/third_party/libc++/__config_site
+@@ -26,7 +26,7 @@
+ #define _LIBCPP_HAS_MONOTONIC_CLOCK 1
+ #define _LIBCPP_HAS_TERMINAL 1
+
+-#ifdef ANDROID_HOST_MUSL
++#if defined(ANDROID_HOST_MUSL) || defined(V8GO_USE_MUSL)
+ #define _LIBCPP_HAS_MUSL_LIBC 1
+ #else
+ #define _LIBCPP_HAS_MUSL_LIBC 0
+--- a/third_party/partition_alloc/partition_alloc.gni
++++ b/third_party/partition_alloc/partition_alloc.gni
+@@ -110,8 +110,9 @@
+ # TODO(crbug.com/329199197): Clean this up when experiments are complete.
+ use_large_empty_slot_span_ring = true
+
++# musl does not support the IFUNC resolvers used for memory tagging.
+ has_memory_tagging = current_cpu == "arm64" && is_clang && !is_asan &&
+-                     !is_hwasan && (is_linux || is_android)
++                     !is_hwasan && (is_linux || is_android) && !is_musl
+
+ declare_args() {
+   # Whether PartitionAlloc is built in official mode.
+@@ -132,7 +133,8 @@
+   # Causes all the allocations to be routed via allocator_shim.cc. Usually,
+   # the allocator shim will, in turn, route them to PartitionAlloc, but
+   # other allocators are also supported by the allocator shim.
+-  use_allocator_shim = use_allocator_shim_default && is_clang_or_gcc
++  # The Linux shim assumes glibc malloc APIs and exception declarations.
++  use_allocator_shim = use_allocator_shim_default && is_clang_or_gcc && !is_musl
+
+   # Whether PartitionAlloc should be available for use or not.
+   # true makes PartitionAlloc linked to the executable or shared library and
+--- a/third_party/partition_alloc/src/partition_alloc/aarch64_support.h
++++ b/third_party/partition_alloc/src/partition_alloc/aarch64_support.h
+@@ -11,5 +11,6 @@
+ #include "partition_alloc/buildflags.h"
+
+-#if PA_BUILDFLAG(IS_ANDROID) || PA_BUILDFLAG(IS_LINUX)
++#if (PA_BUILDFLAG(IS_ANDROID) || PA_BUILDFLAG(IS_LINUX)) && \
++    __has_include(<sys/ifunc.h>)
+ #define HAS_HW_CAPS
+ #endif

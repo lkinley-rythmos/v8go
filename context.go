@@ -10,7 +10,6 @@ import "C"
 import (
 	"runtime"
 	"sync"
-	"unsafe"
 )
 
 // Due to the limitations of passing pointers to C from Go we need to create
@@ -91,12 +90,19 @@ func (c *Context) RetainedValueCount() int {
 // reference for the script and used in the stack trace if there is an error.
 // error will be of type `JSError` if not nil.
 func (c *Context) RunScript(source string, origin string) (*Value, error) {
-	cSource := C.CString(source)
-	cOrigin := C.CString(origin)
-	defer C.free(unsafe.Pointer(cSource))
-	defer C.free(unsafe.Pointer(cOrigin))
+	source, origin = legacyString(source), legacyString(origin)
+	cSource, sourceLen, err := borrowedString(source)
+	if err != nil {
+		return nil, err
+	}
+	cOrigin, originLen, err := borrowedString(origin)
+	if err != nil {
+		return nil, err
+	}
 
-	rtn := C.RunScript(c.ptr, cSource, cOrigin)
+	rtn := C.RunScript(c.ptr, cSource, sourceLen, cOrigin, originLen)
+	runtime.KeepAlive(source)
+	runtime.KeepAlive(origin)
 	return valueResult(c, rtn)
 }
 
@@ -159,12 +165,6 @@ func getContext(ref int) *Context {
 		return nil
 	}
 	return r.ctx
-}
-
-//export goContext
-func goContext(ref int) C.ContextPtr {
-	ctx := getContext(ref)
-	return ctx.ptr
 }
 
 func valueResult(ctx *Context, rtn C.RtnValue) (*Value, error) {

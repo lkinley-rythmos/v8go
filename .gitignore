@@ -5,6 +5,7 @@
 .ccache/
 .cipd
 .gclient_entries
+.gclient-custom_entries
 .gcs_entries
 gn-args*.txt
 

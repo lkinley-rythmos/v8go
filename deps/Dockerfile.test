@@ -2,7 +2,7 @@ FROM golang:1.25-bookworm
 
 # Consumer toolchain: no V8 checkout or depot_tools required.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl gnupg python3 g++-aarch64-linux-gnu \
+    ca-certificates curl gnupg python3 \
     && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
        | gpg --dearmor -o /usr/share/keyrings/llvm.gpg \
     && echo 'deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-22 main' \

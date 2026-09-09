@@ -1,12 +1,12 @@
 # Execute JavaScript from Go
 
 A fork of [rogchap/v8go](https://github.com/rogchap/v8go), preparing
-**v0.10.0-rc.1** with **V8 15.2.124.21**.
+**v0.10.0-rc.2** with **V8 15.2.124.21**.
 
 [![CI](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml/badge.svg)](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/lkinley-rythmos/v8go.svg)](https://pkg.go.dev/github.com/lkinley-rythmos/v8go)
 
-This candidate supports **Linux amd64 and arm64 (glibc)**. Install the matching
+This candidate supports **Linux amd64 and arm64 (glibc and musl)**. Install the matching
 native release package and source its build environment before using the Go
 module. See [installation and release instructions](RELEASING.md).
 The RC is being prepared; release-download commands work after publication.
@@ -70,6 +70,43 @@ if obj.Has("version") { // check if a property exists on the object
     obj.Delete("version") // remove the property from the object
 }
 ```
+
+### Assign several properties in one call
+
+`SetMany` applies an ordered slice of properties using one Go-to-V8 call. Values
+remain owned by the caller and can be reused in subsequent operations:
+
+```go
+iso := v8.NewIsolate()
+defer iso.Dispose()
+ctx := v8.NewContext(iso)
+defer ctx.Close()
+obj := ctx.Global()
+defer obj.Release()
+version, err := v8.NewValue(iso, "v1.0.0")
+if err != nil {
+    panic(err)
+}
+defer version.Release()
+enabled, err := v8.NewValue(iso, true)
+if err != nil {
+    panic(err)
+}
+defer enabled.Release()
+if err := obj.SetMany([]v8.Property{
+    {Key: "version", Value: version},
+    {Key: "enabled", Value: enabled},
+}); err != nil {
+    panic(err)
+}
+```
+
+All values must be non-nil and belong to the object's isolate; these checks
+precede writes. Duplicate keys are applied in order. If a JavaScript setter
+throws, earlier writes remain and later writes are skipped. As with `Set`,
+silently rejected assignments are not errors. `SetMany` accepts full-length keys,
+including embedded NUL bytes; legacy named-property methods retain their existing
+first-NUL truncation behavior.
 
 ### JavaScript errors
 

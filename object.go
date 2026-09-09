@@ -4,12 +4,12 @@
 
 package v8go
 
-// #include <stdlib.h>
 // #include "v8go.h"
 import "C"
 import (
+	"errors"
 	"fmt"
-	"math/big"
+	"runtime"
 	"unsafe"
 )
 
@@ -19,82 +19,65 @@ type Object struct {
 }
 
 func (o *Object) MethodCall(methodName string, args ...Valuer) (*Value, error) {
-	ckey := C.CString(methodName)
-	defer C.free(unsafe.Pointer(ckey))
-
-	getRtn := C.ObjectGet(o.ptr, ckey)
-	prop, err := valueResult(o.ctx, getRtn)
+	methodName = legacyString(methodName)
+	key, length, err := borrowedString(methodName)
 	if err != nil {
 		return nil, err
 	}
-	fn, err := prop.AsFunction()
-	if err != nil {
-		return nil, err
+	var argv []C.ValuePtr
+	if len(args) > 0 {
+		argv = make([]C.ValuePtr, len(args))
+		for i, arg := range args {
+			if arg == nil || nilValuer(arg) || arg.value() == nil {
+				return nil, fmt.Errorf("v8go: nil method argument")
+			}
+			argv[i] = arg.value().ptr
+		}
 	}
-	return fn.Call(o, args...)
+	result := C.ObjectMethodCall(o.ptr, key, length, C.int(len(argv)), unsafe.SliceData(argv))
+	runtime.KeepAlive(methodName)
+	runtime.KeepAlive(args)
+	if result.not_function != 0 {
+		return nil, errors.New("v8go: value is not a Function")
+	}
+	return valueResult(o.ctx, result.result)
 }
 
-func coerceValue(iso *Isolate, val interface{}) (*Value, error) {
-	switch v := val.(type) {
-	case string, int32, uint32, int64, uint64, float64, bool, *big.Int:
-		// ignoring error as code cannot reach the error state as we are already
-		// validating the new value types in this case statement
-		value, _ := NewValue(iso, v)
-		return value, nil
-	case Valuer:
-		return v.value(), nil
-	default:
-		return nil, fmt.Errorf("v8go: unsupported object property type `%T`", v)
-	}
-}
-
-// Set will set a property on the Object to a given value.
-// Supports all value types, eg: Object, Array, Date, Set, Map etc
-// If the value passed is a Go supported primitive (string, int32, uint32, int64, uint64, float64, big.Int)
-// then a *Value will be created and set as the value property.
+// Set sets a named property. Primitive inputs are copied into V8; caller-owned
+// Values remain valid and must be released by their owner.
 func (o *Object) Set(key string, val interface{}) error {
-	value, err := coerceValue(o.ctx.iso, val)
-	if err != nil {
-		return err
-	}
-
-	ckey := C.CString(key)
-	defer C.free(unsafe.Pointer(ckey))
-	C.ObjectSet(o.ptr, ckey, value.ptr)
-	return nil
+	return o.setValue(C.PropertyNamed, key, 0, val)
 }
 
-// Set will set a given index on the Object to a given value.
-// Supports all value types, eg: Object, Array, Date, Set, Map etc
-// If the value passed is a Go supported primitive (string, int32, uint32, int64, uint64, float64, big.Int)
-// then a *Value will be created and set as the value property.
+// SetIdx sets an indexed property with the same ownership rules as Set.
 func (o *Object) SetIdx(idx uint32, val interface{}) error {
-	value, err := coerceValue(o.ctx.iso, val)
-	if err != nil {
-		return err
+	if v, ok := val.(Valuer); ok {
+		handle := valuerValue(v)
+		if handle == nil || handle.ptr == nil {
+			return fmt.Errorf("v8go: nil property value")
+		}
+		result := C.ObjectSetIdxHandle(o.ptr, C.uint32_t(idx), handle.ptr)
+		runtime.KeepAlive(val)
+		return propertyResult(result)
 	}
-
-	C.ObjectSetIdx(o.ptr, C.uint32_t(idx), value.ptr)
-
-	return nil
+	return o.setValue(C.PropertyIndexed, "", idx, val)
 }
 
-// SetInternalField sets the value of an internal field for an ObjectTemplate instance.
-// Panics if the index isn't in the range set by (*ObjectTemplate).SetInternalFieldCount.
+// SetInternalField sets an internal field. It panics if idx is out of range.
 func (o *Object) SetInternalField(idx uint32, val interface{}) error {
-	value, err := coerceValue(o.ctx.iso, val)
-
-	if err != nil {
-		return err
+	if v, ok := val.(Valuer); ok {
+		handle := valuerValue(v)
+		if handle == nil || handle.ptr == nil {
+			return fmt.Errorf("v8go: nil property value")
+		}
+		result := C.ObjectSetInternalHandle(o.ptr, C.uint32_t(idx), handle.ptr)
+		runtime.KeepAlive(val)
+		if result.status == -1 {
+			panic(fmt.Errorf("index out of range [%v] with length %v", idx, o.InternalFieldCount()))
+		}
+		return propertyResult(result)
 	}
-
-	inserted := C.ObjectSetInternalField(o.ptr, C.int(idx), value.ptr)
-
-	if inserted == 0 {
-		panic(fmt.Errorf("index out of range [%v] with length %v", idx, o.InternalFieldCount()))
-	}
-
-	return nil
+	return o.setValue(C.PropertyInternal, "", idx, val)
 }
 
 // InternalFieldCount returns the number of internal fields this Object has.
@@ -105,10 +88,13 @@ func (o *Object) InternalFieldCount() uint32 {
 
 // Get tries to get a Value for a given Object property key.
 func (o *Object) Get(key string) (*Value, error) {
-	ckey := C.CString(key)
-	defer C.free(unsafe.Pointer(ckey))
-
-	rtn := C.ObjectGet(o.ptr, ckey)
+	key = legacyString(key)
+	ptr, length, err := borrowedString(key)
+	if err != nil {
+		return nil, err
+	}
+	rtn := C.ObjectGet(o.ptr, ptr, length)
+	runtime.KeepAlive(key)
 	return valueResult(o.ctx, rtn)
 }
 
@@ -132,9 +118,14 @@ func (o *Object) GetIdx(idx uint32) (*Value, error) {
 // Has calls the abstract operation HasProperty(O, P) described in ECMA-262, 7.3.10.
 // Returns true, if the object has the property, either own or on the prototype chain.
 func (o *Object) Has(key string) bool {
-	ckey := C.CString(key)
-	defer C.free(unsafe.Pointer(ckey))
-	return C.ObjectHas(o.ptr, ckey) != 0
+	key = legacyString(key)
+	ptr, length, err := borrowedString(key)
+	if err != nil {
+		return false
+	}
+	result := C.ObjectHas(o.ptr, ptr, length)
+	runtime.KeepAlive(key)
+	return result != 0
 }
 
 // HasIdx returns true if the object has a value at the given index.
@@ -144,9 +135,14 @@ func (o *Object) HasIdx(idx uint32) bool {
 
 // Delete returns true if successful in deleting a named property on the object.
 func (o *Object) Delete(key string) bool {
-	ckey := C.CString(key)
-	defer C.free(unsafe.Pointer(ckey))
-	return C.ObjectDelete(o.ptr, ckey) != 0
+	key = legacyString(key)
+	ptr, length, err := borrowedString(key)
+	if err != nil {
+		return false
+	}
+	result := C.ObjectDelete(o.ptr, ptr, length)
+	runtime.KeepAlive(key)
+	return result != 0
 }
 
 // DeleteIdx returns true if successful in deleting a value at a given index of the object.

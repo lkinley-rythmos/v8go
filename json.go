@@ -9,6 +9,7 @@ package v8go
 import "C"
 import (
 	"errors"
+	"runtime"
 	"unsafe"
 )
 
@@ -18,10 +19,14 @@ func JSONParse(ctx *Context, str string) (*Value, error) {
 	if ctx == nil {
 		return nil, errors.New("v8go: Context is required")
 	}
-	cstr := C.CString(str)
-	defer C.free(unsafe.Pointer(cstr))
+	str = legacyString(str)
+	cstr, length, err := borrowedString(str)
+	if err != nil {
+		return nil, err
+	}
 
-	rtn := C.JSONParse(ctx.ptr, cstr)
+	rtn := C.JSONParse(ctx.ptr, cstr, length)
+	runtime.KeepAlive(str)
 	return valueResult(ctx, rtn)
 }
 

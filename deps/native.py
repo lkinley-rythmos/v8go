@@ -18,7 +18,22 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 PLATFORMS = {'linux_amd64': ('release', 'x64'),
-             'linux_arm64': ('release-arm64', 'arm64')}
+             'linux_arm64': ('release-arm64', 'arm64'),
+             'linux_musl_amd64': ('release-musl', 'x64'),
+             'linux_musl_arm64': ('release-arm64-musl', 'arm64')}
+
+
+def host_platform():
+    arch = {'x86_64': 'amd64', 'amd64': 'amd64',
+            'aarch64': 'arm64', 'arm64': 'arm64'}.get(platform.machine().lower())
+    if platform.system() != 'Linux' or arch is None:
+        raise ValueError('supported platforms are Linux amd64/arm64 with glibc or musl; use --platform for cross-target installation')
+    libc = platform.libc_ver()[0]
+    if libc == 'glibc':
+        return 'linux_' + arch
+    if libc == 'musl' or any(Path('/lib').glob('ld-musl-*.so.1')):
+        return 'linux_musl_' + arch
+    raise ValueError('could not detect Linux libc; specify --platform explicitly')
 
 
 def digest(path):
@@ -35,20 +50,36 @@ def asset_name(release, target):
     return f'v8go_{release}_{target}.tar.gz'
 
 
+def rust_archives(build, target):
+    tokens = shlex.split((build / 'obj/v8_monolith.ninja').read_text())
+    archives = list(dict.fromkeys(p for p in tokens if p.endswith('.rlib')))
+    # With a custom Rust compiler, GN supplies prebuilt stdlibs through ldflags.
+    # Static-library metadata drops those flags, so include the copied TARGET
+    # stdlib explicitly. Host toolchain directories must never enter the package.
+    if 'phony/build/rust/std/prebuilt_rustc_copy_to_sysroot' in tokens:
+        cpu = 'aarch64' if target.endswith('_arm64') else 'x86_64'
+        libc = 'musl' if target.startswith('linux_musl_') else 'gnu'
+        stdlib = build / f'prebuilt_rustc_sysroot/lib/rustlib/{cpu}-unknown-linux-{libc}/lib'
+        if not all((stdlib / name).is_file() for name in ('libstd.rlib', 'libcore.rlib', 'liballoc.rlib')):
+            raise ValueError(f'missing target prebuilt Rust standard library: {stdlib}')
+        archives += [str(path.relative_to(build)) for path in sorted(stdlib.glob('*.rlib'))]
+    if not archives:
+        raise ValueError('no Rust dependencies found in v8_monolith build metadata')
+    return list(dict.fromkeys(archives))
+
+
 def package(args):
     v8 = ROOT / 'deps/v8'
     build_name, _ = PLATFORMS[args.platform]
     build = v8 / 'out' / build_name
-    ar = v8 / 'third_party/llvm-build/Release+Asserts/bin/llvm-ar'
+    ar = Path(os.environ['V8_LLVM_AR']) if 'V8_LLVM_AR' in os.environ else (
+        v8 / 'third_party/llvm-build/Release+Asserts/bin/llvm-ar')
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     archive = output / asset_name(args.release, args.platform)
     # GN lists Rust archives separately from v8_monolith. Include its entire
     # transitive Rust link closure, together with the matching custom libc++.
-    ninja = (build / 'obj/v8_monolith.ninja').read_text()
-    rust = list(dict.fromkeys(p for p in shlex.split(ninja) if p.endswith('.rlib')))
-    if not rust:
-        raise ValueError('no Rust dependencies found in v8_monolith build metadata')
+    rust = rust_archives(build, args.platform)
     libraries = [build / 'obj/libv8_monolith.a',
                  build / 'obj/buildtools/third_party/libc++/libc++.a',
                  build / 'obj/buildtools/third_party/libc++abi/libc++abi.a']
@@ -89,6 +120,7 @@ def package(args):
         shutil.copyfile(ROOT / 'LICENSE', stage / 'licenses/LICENSE.v8go')
         manifest = {
             'release': args.release, 'platform': args.platform,
+            'build_input_key': os.environ.get('V8_BUILD_INPUT_KEY'),
             'v8': (ROOT / 'deps/VERSION').read_text().strip(),
             'v8_commit': subprocess.check_output(['git', '-C', str(v8), 'rev-parse', 'HEAD'], text=True).strip(),
             'v8go_commit': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
@@ -106,7 +138,7 @@ def package(args):
     print(archive)
 
 
-def environment(prefix):
+def environment(prefix, target='linux_amd64'):
     # cgo parses its own flags after the shell, so reject whitespace rather than
     # generating flags whose meaning changes at the second parsing boundary.
     if any(c.isspace() for c in str(prefix)):
@@ -115,6 +147,8 @@ def environment(prefix):
            f'-isystem{prefix}/include/libcxxabi -I{prefix}/include/libcxx-config '
            '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE '
            '-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS')
+    if target.startswith('linux_musl_'):
+        cxx += ' -DV8GO_USE_MUSL'
     return ('# Source this file before building a v8go application.\n'
             'export CC="${CC:-clang-22}"\n'
             'export CXX="${CXX:-clang++-22}"\n'
@@ -126,7 +160,7 @@ def environment(prefix):
 def install(args):
     name = asset_name(args.release, args.platform)
     prefix = args.prefix.expanduser().resolve()
-    env = environment(prefix)
+    env = environment(prefix, args.platform)
     if prefix.exists():
         raise ValueError(f'installation prefix already exists: {prefix}')
     prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +195,9 @@ def install(args):
                     with tar.extractfile(member) as src, dest.open('wb') as output:
                         shutil.copyfileobj(src, output)
         manifest = json.loads((stage / 'manifest.json').read_text())
+        expected_key = os.environ.get('V8_BUILD_INPUT_KEY')
+        if expected_key and manifest.get('build_input_key') != expected_key:
+            raise ValueError('archive build-input fingerprint does not match this CI build')
         if manifest['release'] != args.release or manifest['platform'] != args.platform:
             raise ValueError('archive release/platform does not match the requested installation')
         if manifest['v8'] != (ROOT / 'deps/VERSION').read_text().strip():
@@ -179,8 +216,7 @@ def main():
     for name in ['package', 'install']:
         command = commands.add_parser(name)
         command.add_argument('--release', required=True)
-        command.add_argument('--platform', choices=PLATFORMS,
-                             default=f'{platform.system().lower()}_{dict(x86_64="amd64", aarch64="arm64", arm64="arm64").get(platform.machine(), "unsupported")}')
+        command.add_argument('--platform', choices=PLATFORMS)
         if name == 'package':
             command.add_argument('--output', type=Path, default=ROOT / '.build/dist')
         else:
@@ -189,8 +225,8 @@ def main():
             command.add_argument('--prefix', type=Path, required=True)
     args = parser.parse_args()
     try:
-        if args.platform not in PLATFORMS:
-            raise ValueError('this release supports Linux amd64 and arm64 only')
+        if args.platform is None:
+            args.platform = host_platform()
         (package if args.command == 'package' else install)(args)
     except (ValueError, OSError, KeyError, tarfile.TarError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'error: {error}\n')

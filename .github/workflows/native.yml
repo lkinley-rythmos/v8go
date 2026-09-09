@@ -8,78 +8,30 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 300
+  platform:
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x64
+            runner: ubuntu-24.04
             platform: linux_amd64
+            libc: glibc
           - arch: arm64
+            runner: ubuntu-24.04-arm
             platform: linux_arm64
-    env:
-      V8_BUILD_JOBS: 4
-      DEPOT_TOOLS_UPDATE: 0
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: ./.github/actions/build-linux
-        with:
-          target-arch: ${{ matrix.arch }}
-      - name: Package complete native dependencies
-        env:
-          TARGET_PLATFORM: ${{ matrix.platform }}
-        run: python3 deps/native.py package --release "v$(cat VERSION)" --platform "$TARGET_PLATFORM"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: candidate-${{ matrix.platform }}
-          path: .build/dist/*
-          include-hidden-files: true
-          retention-days: 7
-
-  test:
-    needs: build
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            platform: linux_amd64
-          - runner: ubuntu-24.04-arm
-            platform: linux_arm64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: candidate-${{ matrix.platform }}
-          path: .build/dist
-      - name: Build consumer toolchain
-        run: docker build -f deps/Dockerfile.test -t v8go-consumer .
-      - name: Install and test on the native architecture
-        env:
-          TARGET_PLATFORM: ${{ matrix.platform }}
-        run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
-            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/workspace" \
-            -e HOME=/tmp -e TARGET_PLATFORM v8go-consumer sh -ec '
-              release="v$(cat VERSION)"
-              archive=".build/dist/v8go_${release}_${TARGET_PLATFORM}.tar.gz"
-              checksum=$(cut -d " " -f 1 "${archive}.sha256")
-              python3 deps/native.py install --release "$release" --platform "$TARGET_PLATFORM" \
-                --archive "$archive" --sha256 "$checksum" --prefix .build/sdk
-              . .build/sdk/env.sh
-              go test -count=1 ./...
-              sh deps/test_consumer.sh
-              go test -count=1 -tags leakcheck .
-            '
-      - uses: actions/upload-artifact@v4
-        with:
-          name: native-${{ matrix.platform }}
-          path: .build/dist/*
-          include-hidden-files: true
-          retention-days: 14
+            libc: glibc
+          - arch: x64
+            runner: ubuntu-24.04
+            platform: linux_musl_amd64
+            libc: musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux_musl_arm64
+            libc: musl
+    uses: ./.github/workflows/native-platform.yml
+    with:
+      arch: ${{ matrix.arch }}
+      runner: ${{ matrix.runner }}
+      platform: ${{ matrix.platform }}
+      libc: ${{ matrix.libc }}

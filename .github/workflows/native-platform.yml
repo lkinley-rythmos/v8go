@@ -1,0 +1,146 @@
+name: Build and test one native platform
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      platform:
+        required: true
+        type: string
+      libc:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 300
+    outputs:
+      sdk-key: ${{ steps.keys.outputs.sdk }}
+    env:
+      V8_BUILD_JOBS: 4
+      DEPOT_TOOLS_UPDATE: 0
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fingerprint native inputs
+        id: keys
+        env:
+          TARGET_PLATFORM: ${{ inputs.platform }}
+        run: python3 deps/ci_cache.py --platform "$TARGET_PLATFORM" >> "$GITHUB_OUTPUT"
+      - name: Restore exact SDK package
+        id: sdk
+        uses: actions/cache/restore@v5
+        with:
+          path: .build/dist
+          key: ${{ steps.keys.outputs.sdk }}
+      - uses: ./.github/actions/build-linux
+        if: ${{ steps.sdk.outputs.cache-hit != 'true' }}
+        with:
+          target-arch: ${{ inputs.arch }}
+          target-libc: ${{ inputs.libc }}
+          source-key: ${{ steps.keys.outputs.source }}
+          toolchain-key: ${{ steps.keys.outputs.toolchain }}
+      - name: Package complete native dependencies
+        if: ${{ steps.sdk.outputs.cache-hit != 'true' }}
+        env:
+          TARGET_PLATFORM: ${{ inputs.platform }}
+          V8_BUILD_INPUT_KEY: ${{ steps.keys.outputs.sdk }}
+        run: python3 deps/native.py package --release "v$(cat VERSION)" --platform "$TARGET_PLATFORM"
+      - name: Save exact SDK package
+        if: ${{ steps.sdk.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .build/dist
+          key: ${{ steps.keys.outputs.sdk }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: candidate-${{ inputs.platform }}
+          path: .build/dist/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    needs: build
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        consumer: ${{ fromJSON(inputs.libc == 'musl' && '["3.24.1", "edge"]' || '["glibc"]') }}
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: candidate-${{ inputs.platform }}
+          path: .build/dist
+      - name: Choose consumer image cache generation
+        id: image-key
+        env:
+          CONSUMER: ${{ matrix.consumer }}
+        run: |
+          if [ "$CONSUMER" = edge ]; then
+            echo "generation=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          else
+            echo "generation=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore consumer image layers
+        id: image-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .build/docker-cache
+          key: consumer-image-v1-${{ runner.arch }}-${{ matrix.consumer }}-${{ hashFiles('deps/Dockerfile.test*') }}-${{ steps.image-key.outputs.generation }}
+      - name: Build consumer image
+        env:
+          CONSUMER: ${{ matrix.consumer }}
+        run: bash deps/build-consumer-image.sh
+      - name: Save consumer image layers
+        if: ${{ steps.image-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .build/docker-cache
+          key: ${{ steps.image-cache.outputs.cache-primary-key }}
+      - name: Identify consumer compiler versions
+        id: consumer-key
+        run: |
+          fingerprint=$(docker run --rm v8go-consumer sh -ec 'go version; clang-22 --version; ldd --version 2>&1 || true' | sha256sum | cut -d ' ' -f 1)
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+      - name: Restore consumer Go caches
+        id: go-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            .build/go-cache
+            .build/go-mod
+          key: consumer-go-v1-${{ inputs.platform }}-${{ matrix.consumer }}-${{ steps.consumer-key.outputs.fingerprint }}-${{ needs.build.outputs.sdk-key }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            consumer-go-v1-${{ inputs.platform }}-${{ matrix.consumer }}-${{ steps.consumer-key.outputs.fingerprint }}-${{ needs.build.outputs.sdk-key }}-${{ hashFiles('go.sum') }}-
+      - name: Install and test on the native architecture
+        env:
+          TARGET_PLATFORM: ${{ inputs.platform }}
+          V8_BUILD_INPUT_KEY: ${{ needs.build.outputs.sdk-key }}
+        run: bash deps/test-native-package.sh
+      - name: Save consumer Go caches
+        if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            .build/go-cache
+            .build/go-mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@v6
+        if: ${{ matrix.consumer != 'edge' }}
+        with:
+          name: native-${{ inputs.platform }}
+          path: .build/dist/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14

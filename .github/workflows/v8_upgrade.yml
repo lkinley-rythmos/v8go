@@ -10,7 +10,7 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Compare with Chrome stable
         working-directory: deps
         run: ./v8_upgrade.sh
