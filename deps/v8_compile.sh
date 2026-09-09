@@ -79,6 +79,7 @@ if [ -n "${V8_CLANG_BASE_PATH:-}" ]; then
 clang_base_path=\"$V8_CLANG_BASE_PATH\"
 clang_version=\"23\"
 rust_sysroot_absolute=\"$V8_RUST_SYSROOT\"
+rust_bindgen_root=\"$V8_RUST_SYSROOT\"
 rustc_version=\"$("$V8_RUST_SYSROOT/bin/rustc" -V | tr -d ' ()')\"
 toolchain_supports_rust_thin_lto=false"
 fi

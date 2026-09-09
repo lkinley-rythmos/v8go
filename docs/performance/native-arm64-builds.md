@@ -5,7 +5,9 @@ runner. The amd64 jobs use `ubuntu-24.04`. Both builds use four compiler jobs.
 
 The pinned V8 checkout supplies x86-64 Linux compiler binaries, so the ARM64
 builder installs Clang/LLVM 23 from apt.llvm.org and Rust nightly 2026-07-01
-from rust-lang.org. Rust downloads have pinned SHA-256 checksums. LLVM packages
+from rust-lang.org, including Cargo and rustfmt. bindgen 0.72.1 (matching V8)
+is built natively with Cargo and uses the native LLVM 23 libclang. GN points
+both the Rust compiler and binding-generator roots at these native tools. Rust downloads have pinned SHA-256 checksums. LLVM packages
 are verified through the signed apt repository and follow its version 23 branch.
 The setup step prints the exact compiler versions in the build log.
 
