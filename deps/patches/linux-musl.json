@@ -26,5 +26,13 @@
   "buildtools/third_party/libc++/__config_site": {
     "before": "fcac9dc8ea709997ab8b43af6c4e4e2a3674531c6f6303ca42eaf1e3fe189064",
     "after": "681d3162d82cc5397c4e5de54e4454fd7a0eaf06698c2f09962c4d0161c6c89b"
+  },
+  "third_party/partition_alloc/partition_alloc.gni": {
+    "before": "eb4cda4f3b0fbbde6b1dbf9ea1b023167bc11c674f304750f6970f74e37335b8",
+    "after": "c70485260b61f286466453b50170fa8f4de7ff5b31492b266e19f8c88444b25f"
+  },
+  "third_party/partition_alloc/src/partition_alloc/aarch64_support.h": {
+    "before": "28c02d56e68d55365e234416ba864b1da843593cb718375c156e7d860125e40b",
+    "after": "25132ff6fd6d3d292872bfee750ae4786f236764c489ddf9ec70f025ceb69a2e"
   }
 }

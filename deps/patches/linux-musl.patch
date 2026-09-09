@@ -79,7 +79,7 @@
        toolchain_for_rust_host_build_tools = true
 +      use_musl = false
 +      target_sysroot = ""
- 
+
        # The host build tools are static release builds to make the Chromium
        # build faster.
 --- a/build/rust/known-target-triples.txt
@@ -96,9 +96,42 @@
 @@ -26,7 +26,7 @@
  #define _LIBCPP_HAS_MONOTONIC_CLOCK 1
  #define _LIBCPP_HAS_TERMINAL 1
- 
+
 -#ifdef ANDROID_HOST_MUSL
 +#if defined(ANDROID_HOST_MUSL) || defined(V8GO_USE_MUSL)
  #define _LIBCPP_HAS_MUSL_LIBC 1
  #else
  #define _LIBCPP_HAS_MUSL_LIBC 0
+--- a/third_party/partition_alloc/partition_alloc.gni
++++ b/third_party/partition_alloc/partition_alloc.gni
+@@ -110,8 +110,9 @@
+ # TODO(crbug.com/329199197): Clean this up when experiments are complete.
+ use_large_empty_slot_span_ring = true
+
++# musl does not support the IFUNC resolvers used for memory tagging.
+ has_memory_tagging = current_cpu == "arm64" && is_clang && !is_asan &&
+-                     !is_hwasan && (is_linux || is_android)
++                     !is_hwasan && (is_linux || is_android) && !is_musl
+
+ declare_args() {
+   # Whether PartitionAlloc is built in official mode.
+@@ -132,7 +133,8 @@
+   # Causes all the allocations to be routed via allocator_shim.cc. Usually,
+   # the allocator shim will, in turn, route them to PartitionAlloc, but
+   # other allocators are also supported by the allocator shim.
+-  use_allocator_shim = use_allocator_shim_default && is_clang_or_gcc
++  # The Linux shim assumes glibc malloc APIs and exception declarations.
++  use_allocator_shim = use_allocator_shim_default && is_clang_or_gcc && !is_musl
+
+   # Whether PartitionAlloc should be available for use or not.
+   # true makes PartitionAlloc linked to the executable or shared library and
+--- a/third_party/partition_alloc/src/partition_alloc/aarch64_support.h
++++ b/third_party/partition_alloc/src/partition_alloc/aarch64_support.h
+@@ -11,5 +11,6 @@
+ #include "partition_alloc/buildflags.h"
+
+-#if PA_BUILDFLAG(IS_ANDROID) || PA_BUILDFLAG(IS_LINUX)
++#if (PA_BUILDFLAG(IS_ANDROID) || PA_BUILDFLAG(IS_LINUX)) && \
++    __has_include(<sys/ifunc.h>)
+ #define HAS_HW_CAPS
+ #endif

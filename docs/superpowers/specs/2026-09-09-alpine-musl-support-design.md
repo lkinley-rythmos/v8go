@@ -92,3 +92,18 @@ that the consumer does not accidentally depend on build-only packages.
   with separate glibc host tools; any adaptation must be reviewed against this
   repository's exact V8/build revisions:
   https://github.com/denoland/rusty_v8/blob/main/build.rs
+
+## Allocator portability
+
+Musl targets retain PartitionAlloc for explicit V8 allocations, but disable its
+Linux malloc shim, which assumes glibc headers, exception declarations, and
+`mallinfo`. Standard malloc calls use musl's allocator. ARM64 musl also disables
+IFUNC-based memory tagging and uses the existing no-tagging fallback. The
+AArch64 helper includes IFUNC headers only where they exist. Glibc host and
+target settings retain their existing defaults.
+
+The command-graph preflight rejects enabled allocator shims or memory tagging
+in musl targets while allowing them in glibc host tools. Both architecture
+graphs and the ARM64 tagging/page allocator sources were checked locally after
+the initial CI failures; full build and Alpine consumer validation remain
+required before release.

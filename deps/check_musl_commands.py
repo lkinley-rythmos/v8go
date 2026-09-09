@@ -26,6 +26,11 @@ def check(commands, build_dir):
         counts[('host_' if host else 'target_') + 'cpp'] += 1
     for ninja in Path(build_dir).rglob('*.ninja'):
         for line in ninja.read_text().splitlines():
+            host = str(ninja.relative_to(build_dir)).startswith('clang_')
+            if not host and line.strip().startswith('rspfile_content = '):
+                for flag in ('USE_ALLOCATOR_SHIM', 'HAS_MEMORY_TAGGING'):
+                    if f'{flag}=true' in line.split():
+                        raise ValueError(f'musl target enables unsupported allocator feature {flag}')
             if not line.startswith('rustflags = '):
                 continue
             targets = [word.split('=', 1)[1] for word in line.split() if word.startswith('--target=')]

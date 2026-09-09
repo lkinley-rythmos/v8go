@@ -36,3 +36,15 @@ class CommandGraphTests(unittest.TestCase):
     def test_rejects_bundled_bindgen(self):
         with self.assertRaisesRegex(ValueError, 'bundled Rust'):
             check(self.commands + 'python3 wrapper.py --bindgen-exe ../../third_party/rust-toolchain/bin/bindgen\n', self.root)
+
+    def test_rejects_unsupported_musl_allocator_features(self):
+        for flag in ('USE_ALLOCATOR_SHIM', 'HAS_MEMORY_TAGGING'):
+            with self.subTest(flag=flag):
+                (self.root / 'toolchain.ninja').write_text(f'  rspfile_content = --flags {flag}=true\n')
+                with self.assertRaisesRegex(ValueError, flag):
+                    check(self.commands, self.root)
+
+    def test_allows_glibc_host_allocator_features(self):
+        (self.root / 'clang_x64_glibc/toolchain.ninja').write_text(
+            '  rspfile_content = --flags USE_ALLOCATOR_SHIM=true HAS_MEMORY_TAGGING=true\n')
+        check(self.commands, self.root)
