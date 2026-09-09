@@ -39,7 +39,8 @@ def package(args):
     v8 = ROOT / 'deps/v8'
     build_name, _ = PLATFORMS[args.platform]
     build = v8 / 'out' / build_name
-    ar = v8 / 'third_party/llvm-build/Release+Asserts/bin/llvm-ar'
+    ar = Path(os.environ['V8_LLVM_AR']) if 'V8_LLVM_AR' in os.environ else (
+        v8 / 'third_party/llvm-build/Release+Asserts/bin/llvm-ar')
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     archive = output / asset_name(args.release, args.platform)

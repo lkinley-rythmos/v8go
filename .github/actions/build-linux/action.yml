@@ -14,9 +14,10 @@ runs:
       uses: actions/cache@v5
       with:
         path: .ccache
-        key: ${{ runner.os }}-${{ inputs.target-arch }}:libv8:ccache:${{ github.run_number }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}:libv8:ccache:${{ github.run_number }}
         restore-keys: |
-          ${{ runner.os }}-${{ inputs.target-arch }}:libv8:ccache:
+          ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}:libv8:ccache:
+          ${{ runner.arch == 'X64' && format('{0}-{1}:libv8:ccache:', runner.os, inputs.target-arch) || '' }}
 
     - name: Setup Python
       uses: actions/setup-python@v6
@@ -37,17 +38,24 @@ runs:
 
         echo "CCACHE_DIR=$ccacheDir" >> "$GITHUB_ENV"
 
+    - name: Install native ARM64 toolchains
+      if: ${{ runner.arch == 'ARM64' }}
+      shell: bash
+      run: bash deps/setup-linux-arm64.sh
+
     - name: Download V8 Source
       shell: bash
       working-directory: ./deps
       run: ./v8_download.sh
 
-    - name: Prepare for arm64 cross compile
+    - name: Prepare ARM64 sysroot
       shell: bash
       if: ${{ inputs.target-arch == 'arm64' }}
       working-directory: ./deps/v8
       run: |
-        sudo apt-get install -yq g++-aarch64-linux-gnu
+        if [ "$(uname -m)" != aarch64 ]; then
+          sudo apt-get install -yq g++-aarch64-linux-gnu
+        fi
         build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
 
     - name: Compile V8

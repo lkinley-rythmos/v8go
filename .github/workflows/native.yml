@@ -9,15 +9,17 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x64
+            runner: ubuntu-24.04
             platform: linux_amd64
           - arch: arm64
+            runner: ubuntu-24.04-arm
             platform: linux_arm64
     env:
       V8_BUILD_JOBS: 4

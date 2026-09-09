@@ -72,6 +72,16 @@ cc_wrapper=\"$cc_wrapper\"
 target_cpu=\"$target_cpu\"
 v8_target_cpu=\"$target_cpu\""
 
+# Native Linux ARM64 uses host-native tools instead of Chromium's x64 prebuilts.
+if [ -n "${V8_CLANG_BASE_PATH:-}" ]; then
+  gn_args="$gn_args
+clang_base_path=\"$V8_CLANG_BASE_PATH\"
+clang_version=\"23\"
+rust_sysroot_absolute=\"$V8_RUST_SYSROOT\"
+rustc_version=\"$("$V8_RUST_SYSROOT/bin/rustc" -V)\"
+toolchain_supports_rust_thin_lto=false"
+fi
+
 cd "${dir}/v8"
 
 gn gen "$build_dir" --args="$gn_args"
