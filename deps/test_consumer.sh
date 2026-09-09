@@ -28,10 +28,25 @@ func main() {
     if err != nil || value.String() != "1.234,5" {
         panic(fmt.Sprintf("Intl smoke test failed: %v, %v", value, err))
     }
+    date, err := ctx.RunScript("Temporal.PlainDate.from('2024-02-28').add({days: 1}).toString()", "temporal.js")
+    if err != nil || date.String() != "2024-02-29" {
+        panic(fmt.Sprintf("Temporal smoke test failed: %v, %v", date, err))
+    }
     fmt.Println("consumer OK, V8 " + v8.Version())
 }
 EOF
 go mod tidy
-go run . "$engine"
+go build -o consumer .
+./consumer "$engine"
 go mod vendor
-go run -mod=vendor . "$engine"
+go build -mod=vendor -o consumer .
+./consumer "$engine"
+case "${TARGET_PLATFORM:-}" in
+  linux_musl_*)
+    readelf -l consumer | grep -q 'ld-musl-'
+    if readelf -d consumer | grep -q 'libc.so.6'; then
+      echo 'musl consumer unexpectedly depends on glibc' >&2
+      exit 1
+    fi
+    ;;
+esac

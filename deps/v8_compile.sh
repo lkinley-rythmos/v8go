@@ -3,6 +3,11 @@
 set -e
 
 target_cpu="$1"
+target_libc="${2:-glibc}"
+case "$target_libc" in
+  glibc|musl) ;;
+  *) echo "Unsupported libc: $target_libc" >&2; exit 1 ;;
+esac
 
 case "$target_cpu" in
   x64) build_dir="./out/release" ;;
@@ -12,6 +17,10 @@ case "$target_cpu" in
     exit 1
     ;;
 esac
+
+if [ "$target_libc" = musl ]; then
+  build_dir="$build_dir-musl"
+fi
 
 dir="$(cd "$(dirname "$0")" && pwd)"
 v8_dir="${dir}/v8"
@@ -84,9 +93,25 @@ rustc_version=\"$("$V8_RUST_SYSROOT/bin/rustc" -V | tr -d ' ()')\"
 toolchain_supports_rust_thin_lto=false"
 fi
 
+if [ "$target_libc" = musl ]; then
+  : "${V8_MUSL_SYSROOT:?musl builds require an Alpine sysroot}"
+  : "${V8_RUST_SYSROOT:?musl builds require a custom Rust toolchain}"
+  python3 "$dir/apply_musl_patch.py"
+  gn_args="$gn_args
+use_musl=true
+use_glib=false
+target_sysroot=\"$V8_MUSL_SYSROOT\"
+host_toolchain=\"//build/toolchain/linux:clang_${target_cpu}_glibc\"
+v8_snapshot_toolchain=\"//build/toolchain/linux:clang_${target_cpu}_glibc\""
+fi
+
 cd "${dir}/v8"
 
 gn gen "$build_dir" --args="$gn_args"
+
+if [ "$target_libc" = musl ]; then
+  python3 "$dir/check_musl_commands.py" "$build_dir"
+fi
 
 gn args "$build_dir" --list > "${dir}/gn-args_${os}_${target_cpu}.txt"
 echo "Effective build arguments saved to ${dir}/gn-args_${os}_${target_cpu}.txt"

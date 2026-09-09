@@ -7,6 +7,8 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
+import native
 
 
 SCRIPT = Path(__file__).with_name('native.py')
@@ -20,10 +22,10 @@ class InstallTests(unittest.TestCase):
         self.archive = self.root / 'native.tar.gz'
         self.prefix = self.root / 'installed'
 
-    def make_archive(self, extra=None, version='v0.10.0-rc.1'):
+    def make_archive(self, extra=None, version='v0.10.0-rc.1', platform='linux_amd64'):
         files = {
             'manifest.json': json.dumps({'release': version, 'v8': '15.2.124.21',
-                                         'platform': 'linux_amd64'}).encode(),
+                                         'platform': platform}).encode(),
             'lib/libv8.a': b'!<arch>\n',
             'include/libcxx/vector': b'header',
         }
@@ -36,10 +38,10 @@ class InstallTests(unittest.TestCase):
                 tar.addfile(member, io.BytesIO(data))
         return hashlib.sha256(self.archive.read_bytes()).hexdigest()
 
-    def install(self, checksum):
+    def install(self, checksum, platform='linux_amd64'):
         return subprocess.run([
             sys.executable, str(SCRIPT), 'install', '--release', 'v0.10.0-rc.1',
-            '--platform', 'linux_amd64', '--archive', str(self.archive),
+            '--platform', platform, '--archive', str(self.archive),
             '--sha256', checksum, '--prefix', str(self.prefix),
         ], text=True, capture_output=True)
 
@@ -71,6 +73,40 @@ class InstallTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('release', result.stderr.lower())
         self.assertFalse(self.prefix.exists())
+
+    def test_installs_musl_archive_with_matching_libcxx_configuration(self):
+        for arch in ('amd64', 'arm64'):
+            with self.subTest(arch=arch):
+                target = 'linux_musl_' + arch
+                result = self.install(self.make_archive(platform=target), target)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('-DV8GO_USE_MUSL', (self.prefix / 'env.sh').read_text())
+                import shutil
+                shutil.rmtree(self.prefix)
+
+    def test_rejects_glibc_archive_requested_as_musl(self):
+        result = self.install(self.make_archive(), 'linux_musl_amd64')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('release/platform', result.stderr)
+        self.assertFalse(self.prefix.exists())
+
+
+class PlatformTests(unittest.TestCase):
+    def test_detects_both_libcs_and_architectures(self):
+        for cpu, arch in [('x86_64', 'amd64'), ('aarch64', 'arm64')]:
+            for libc, prefix in [('glibc', 'linux_'), ('musl', 'linux_musl_')]:
+                with self.subTest(cpu=cpu, libc=libc), \
+                     mock.patch.object(native.platform, 'system', return_value='Linux'), \
+                     mock.patch.object(native.platform, 'machine', return_value=cpu), \
+                     mock.patch.object(native.platform, 'libc_ver', return_value=(libc, '')):
+                    self.assertEqual(native.host_platform(), prefix + arch)
+
+    def test_detects_musl_loader_when_python_does_not_identify_libc(self):
+        with mock.patch.object(native.platform, 'system', return_value='Linux'), \
+             mock.patch.object(native.platform, 'machine', return_value='x86_64'), \
+             mock.patch.object(native.platform, 'libc_ver', return_value=('', '')), \
+             mock.patch.object(native.Path, 'glob', return_value=iter([Path('/lib/ld-musl-x86_64.so.1')])):
+            self.assertEqual(native.host_platform(), 'linux_musl_amd64')
 
 
 if __name__ == '__main__':

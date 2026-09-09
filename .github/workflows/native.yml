@@ -18,9 +18,19 @@ jobs:
           - arch: x64
             runner: ubuntu-24.04
             platform: linux_amd64
+            libc: glibc
           - arch: arm64
             runner: ubuntu-24.04-arm
             platform: linux_arm64
+            libc: glibc
+          - arch: x64
+            runner: ubuntu-24.04
+            platform: linux_musl_amd64
+            libc: musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux_musl_arm64
+            libc: musl
     env:
       V8_BUILD_JOBS: 4
       DEPOT_TOOLS_UPDATE: 0
@@ -31,6 +41,7 @@ jobs:
       - uses: ./.github/actions/build-linux
         with:
           target-arch: ${{ matrix.arch }}
+          target-libc: ${{ matrix.libc }}
       - name: Package complete native dependencies
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
@@ -53,6 +64,18 @@ jobs:
             platform: linux_amd64
           - runner: ubuntu-24.04-arm
             platform: linux_arm64
+          - runner: ubuntu-24.04
+            platform: linux_musl_amd64
+            alpine: '3.24.1'
+          - runner: ubuntu-24.04-arm
+            platform: linux_musl_arm64
+            alpine: '3.24.1'
+          - runner: ubuntu-24.04
+            platform: linux_musl_amd64
+            alpine: edge
+          - runner: ubuntu-24.04-arm
+            platform: linux_musl_arm64
+            alpine: edge
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
@@ -60,8 +83,14 @@ jobs:
         with:
           name: candidate-${{ matrix.platform }}
           path: .build/dist
-      - name: Build consumer toolchain
+      - name: Build glibc consumer toolchain
+        if: ${{ !matrix.alpine }}
         run: docker build -f deps/Dockerfile.test -t v8go-consumer .
+      - name: Build Alpine consumer toolchain
+        if: ${{ matrix.alpine }}
+        env:
+          ALPINE_VERSION: ${{ matrix.alpine }}
+        run: docker build --build-arg "ALPINE_VERSION=$ALPINE_VERSION" -f deps/Dockerfile.test-musl -t v8go-consumer .
       - name: Install and test on the native architecture
         env:
           TARGET_PLATFORM: ${{ matrix.platform }}
@@ -80,6 +109,7 @@ jobs:
               go test -count=1 -tags leakcheck .
             '
       - uses: actions/upload-artifact@v6
+        if: ${{ matrix.alpine != 'edge' }}
         with:
           name: native-${{ matrix.platform }}
           path: .build/dist/*

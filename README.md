@@ -6,7 +6,7 @@ A fork of [rogchap/v8go](https://github.com/rogchap/v8go), preparing
 [![CI](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml/badge.svg)](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/lkinley-rythmos/v8go.svg)](https://pkg.go.dev/github.com/lkinley-rythmos/v8go)
 
-This candidate supports **Linux amd64 and arm64 (glibc)**. Install the matching
+This candidate supports **Linux amd64 and arm64 (glibc and musl)**. Install the matching
 native release package and source its build environment before using the Go
 module. See [installation and release instructions](RELEASING.md).
 The RC is being prepared; release-download commands work after publication.

@@ -18,7 +18,22 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 PLATFORMS = {'linux_amd64': ('release', 'x64'),
-             'linux_arm64': ('release-arm64', 'arm64')}
+             'linux_arm64': ('release-arm64', 'arm64'),
+             'linux_musl_amd64': ('release-musl', 'x64'),
+             'linux_musl_arm64': ('release-arm64-musl', 'arm64')}
+
+
+def host_platform():
+    arch = {'x86_64': 'amd64', 'amd64': 'amd64',
+            'aarch64': 'arm64', 'arm64': 'arm64'}.get(platform.machine().lower())
+    if platform.system() != 'Linux' or arch is None:
+        raise ValueError('supported platforms are Linux amd64/arm64 with glibc or musl; use --platform for cross-target installation')
+    libc = platform.libc_ver()[0]
+    if libc == 'glibc':
+        return 'linux_' + arch
+    if libc == 'musl' or any(Path('/lib').glob('ld-musl-*.so.1')):
+        return 'linux_musl_' + arch
+    raise ValueError('could not detect Linux libc; specify --platform explicitly')
 
 
 def digest(path):
@@ -107,7 +122,7 @@ def package(args):
     print(archive)
 
 
-def environment(prefix):
+def environment(prefix, target='linux_amd64'):
     # cgo parses its own flags after the shell, so reject whitespace rather than
     # generating flags whose meaning changes at the second parsing boundary.
     if any(c.isspace() for c in str(prefix)):
@@ -116,6 +131,8 @@ def environment(prefix):
            f'-isystem{prefix}/include/libcxxabi -I{prefix}/include/libcxx-config '
            '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE '
            '-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS')
+    if target.startswith('linux_musl_'):
+        cxx += ' -DV8GO_USE_MUSL'
     return ('# Source this file before building a v8go application.\n'
             'export CC="${CC:-clang-22}"\n'
             'export CXX="${CXX:-clang++-22}"\n'
@@ -127,7 +144,7 @@ def environment(prefix):
 def install(args):
     name = asset_name(args.release, args.platform)
     prefix = args.prefix.expanduser().resolve()
-    env = environment(prefix)
+    env = environment(prefix, args.platform)
     if prefix.exists():
         raise ValueError(f'installation prefix already exists: {prefix}')
     prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -180,8 +197,7 @@ def main():
     for name in ['package', 'install']:
         command = commands.add_parser(name)
         command.add_argument('--release', required=True)
-        command.add_argument('--platform', choices=PLATFORMS,
-                             default=f'{platform.system().lower()}_{dict(x86_64="amd64", aarch64="arm64", arm64="arm64").get(platform.machine(), "unsupported")}')
+        command.add_argument('--platform', choices=PLATFORMS)
         if name == 'package':
             command.add_argument('--output', type=Path, default=ROOT / '.build/dist')
         else:
@@ -190,8 +206,8 @@ def main():
             command.add_argument('--prefix', type=Path, required=True)
     args = parser.parse_args()
     try:
-        if args.platform not in PLATFORMS:
-            raise ValueError('this release supports Linux amd64 and arm64 only')
+        if args.platform is None:
+            args.platform = host_platform()
         (package if args.command == 'package' else install)(args)
     except (ValueError, OSError, KeyError, tarfile.TarError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'error: {error}\n')

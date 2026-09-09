@@ -1,0 +1,23 @@
+{
+  "date": "2026-07-01",
+  "targets": {
+    "x86_64-unknown-linux-gnu": {
+      "rustc": "af53f1c6b7a3ae8949c34175925bfe9b2689d4ef03a8f5952b0a9c0ce751b9fe",
+      "rust-std": "3504125a71a2cfbee70478f058b2de96a36f6b4a81046d2cec73ce2b59cbc2c6",
+      "rustfmt": "e7d27e3d0b10f5b41b9712c56ffc17814ee796a2ccf803a2534d31108df5d4d4",
+      "cargo": "bb629e56908a2cd11eb51db44b63bb525e6ad9e36aeb7e12319985be1334b0e1"
+    },
+    "x86_64-unknown-linux-musl": {
+      "rust-std": "34982f6d1c3c6879d656e8a62fa0f66529636066e8fda34037491d3ce7165491"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "rustc": "8cce5a404ddb0351a4b5d16fb7b1bb58911b3189d8218195d59076be291a44a6",
+      "rust-std": "a10344341ded91a0edf4e1c98e85753cd39cf2af72ef0121eb5270998e26af16",
+      "rustfmt": "4d67e002139f95eb07f269034a5cdff86061cfdaf241a9718659a2c50fa7f92b",
+      "cargo": "be8de77366f457ae50d6ab073ef415e87fb3ab22bd158d9c61fc426b6473345f"
+    },
+    "aarch64-unknown-linux-musl": {
+      "rust-std": "b03a3bcf3c9829950d25f25c66b39a2e71d065d8c5eabedd1cd4fbceabbdac8f"
+    }
+  }
+}

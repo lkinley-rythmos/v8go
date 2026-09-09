@@ -11,7 +11,7 @@ both the Rust compiler and binding-generator roots at these native tools. Rust d
 are verified through the signed apt repository and follow its version 23 branch.
 The setup step prints the exact compiler versions in the build log.
 
-`deps/setup-linux-arm64.sh` exports the custom Clang and Rust paths through
+`deps/setup-linux-toolchains.sh` exports the custom Clang and Rust paths through
 GitHub's environment file. `deps/v8_compile.sh` passes V8's supported GN
 arguments for custom toolchains and disables Rust ThinLTO interoperability,
 since the Rust and C++ compilers do not share a pinned LLVM revision. V8's

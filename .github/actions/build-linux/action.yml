@@ -7,6 +7,11 @@ inputs:
     default: x64
     required: true
 
+  target-libc:
+    description: 'Target C library (glibc or musl)'
+    default: glibc
+    required: false
+
 runs:
   using: "composite"
   steps:
@@ -14,10 +19,10 @@ runs:
       uses: actions/cache@v5
       with:
         path: .ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}:libv8:ccache:${{ github.run_number }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}-${{ inputs.target-libc }}:libv8:ccache:${{ github.run_number }}
         restore-keys: |
-          ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}:libv8:ccache:
-          ${{ runner.arch == 'X64' && format('{0}-{1}:libv8:ccache:', runner.os, inputs.target-arch) || '' }}
+          ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}-${{ inputs.target-libc }}:libv8:ccache:
+          ${{ runner.arch == 'X64' && inputs.target-libc == 'glibc' && format('{0}-{1}:libv8:ccache:', runner.os, inputs.target-arch) || '' }}
 
     - name: Setup Python
       uses: actions/setup-python@v6
@@ -38,10 +43,12 @@ runs:
 
         echo "CCACHE_DIR=$ccacheDir" >> "$GITHUB_ENV"
 
-    - name: Install native ARM64 toolchains
-      if: ${{ runner.arch == 'ARM64' }}
+    - name: Install native compiler toolchains
+      if: ${{ runner.arch == 'ARM64' || inputs.target-libc == 'musl' }}
       shell: bash
-      run: bash deps/setup-linux-arm64.sh
+      env:
+        V8_TARGET_LIBC: ${{ inputs.target-libc }}
+      run: bash deps/setup-linux-toolchains.sh
 
     - name: Download V8 Source
       shell: bash
@@ -58,10 +65,15 @@ runs:
         fi
         build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
 
+    - name: Prepare musl sysroot
+      if: ${{ inputs.target-libc == 'musl' }}
+      shell: bash
+      run: bash deps/setup-musl-sysroot.sh
+
     - name: Compile V8
       shell: bash
       working-directory: ./deps
-      run: ./v8_compile.sh ${{ inputs.target-arch }}
+      run: ./v8_compile.sh ${{ inputs.target-arch }} ${{ inputs.target-libc }}
 
     - name: Show CCache Status
       shell: bash
