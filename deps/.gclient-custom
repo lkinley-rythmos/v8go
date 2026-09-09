@@ -10,6 +10,9 @@ solutions = [
       {"name": "wasm_js"},
     ],
     "custom_deps": {
+      # Host-native tools are installed by setup-linux-toolchains.sh.
+      "v8/third_party/llvm-build/Release+Asserts": None,
+      "v8/third_party/rust-toolchain": None,
       # These deps are unnecessary for building.
       #
       # https://chromium.googlesource.com/v8/v8/+/refs/heads/master/DEPS

@@ -80,6 +80,7 @@ runs:
           !deps/v8/.git
           !deps/v8/out
           deps/.gclient_entries
+          deps/.gclient-custom_entries
           deps/.gclient_previous_sync_commits
           deps/.gclient_previous_custom_vars
         key: ${{ inputs.source-key }}
@@ -107,6 +108,7 @@ runs:
           !deps/v8/.git
           !deps/v8/out
           deps/.gclient_entries
+          deps/.gclient-custom_entries
           deps/.gclient_previous_sync_commits
           deps/.gclient_previous_custom_vars
         key: ${{ inputs.source-key }}

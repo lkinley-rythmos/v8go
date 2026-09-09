@@ -35,7 +35,7 @@ def fingerprints(root, platform):
     arch = 'arm64' if platform.endswith('arm64') else 'amd64'
     compiler = 'bundled' if platform == 'linux_amd64' else 'custom'
     pins = [gitlink(root, name) for name in ('deps/v8', 'deps/depot_tools')]
-    source = hash_inputs(root, ['deps/VERSION', 'deps/.gclient', 'deps/v8_download.sh'], pins)
+    source = hash_inputs(root, ['deps/VERSION', 'deps/.gclient', 'deps/.gclient-custom', 'deps/v8_download.sh'], pins)
     toolchain = hash_inputs(root, ['deps/setup-linux-toolchains.sh', 'deps/rust-toolchain.json',
                                   'deps/llvm-version'], [])
     sdk = hash_inputs(root, [

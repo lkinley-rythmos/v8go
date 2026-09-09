@@ -11,7 +11,7 @@ class CacheFingerprintTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for name in ('VERSION', 'LICENSE', 'deps/VERSION', 'deps/.gclient',
+        for name in ('VERSION', 'LICENSE', 'deps/VERSION', 'deps/.gclient', 'deps/.gclient-custom',
                      'deps/v8_download.sh', 'deps/v8_compile.sh', 'deps/native.py',
                      'deps/setup-linux-toolchains.sh', 'deps/rust-toolchain.json',
                      'deps/llvm-version', 'deps/setup-musl-sysroot.sh',
@@ -71,3 +71,10 @@ class CacheFingerprintTests(unittest.TestCase):
         self.assertEqual(musl['toolchain'], glibc['toolchain'])
         self.assertNotEqual(musl['source'], self.keys('linux_musl_amd64')['source'])
         self.assertNotEqual(self.keys('linux_amd64')['source'], self.keys('linux_musl_amd64')['source'])
+
+    def test_custom_sync_profile_invalidates_source_and_sdk(self):
+        before = self.keys()
+        (self.root / 'deps/.gclient-custom').write_text('changed')
+        after = self.keys()
+        for kind in ('source', 'sdk'):
+            self.assertNotEqual(before[kind], after[kind])

@@ -32,7 +32,10 @@ used. ARM64 glibc/musl share pristine sources and Rust tools, while compiled SDK
 and ccache remain separated by libc. Concurrent initial misses can still perform
 duplicate setup; later runs reuse the winner's immutable cache.
 
-Custom toolchain jobs skip V8's unused bundled x86-64 Clang/Rust downloads. All
+Custom toolchain jobs select the declarative `deps/.gclient-custom` profile to
+skip V8's unused bundled x86-64 Clang/Rust downloads. The default profile remains
+`deps/.gclient`. Both profiles are checked with the pinned depot_tools parser in
+the script gate; Python imports and conditionals are not valid gclient syntax. All
 jobs suppress the two upstream WebAssembly test archive hooks, which are not
 needed for v8go's own tests. LLVM is pinned in `deps/llvm-version`; update that
 file intentionally when updating the custom compiler. Rust components retain
