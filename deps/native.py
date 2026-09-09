@@ -50,6 +50,24 @@ def asset_name(release, target):
     return f'v8go_{release}_{target}.tar.gz'
 
 
+def rust_archives(build, target):
+    tokens = shlex.split((build / 'obj/v8_monolith.ninja').read_text())
+    archives = list(dict.fromkeys(p for p in tokens if p.endswith('.rlib')))
+    # With a custom Rust compiler, GN supplies prebuilt stdlibs through ldflags.
+    # Static-library metadata drops those flags, so include the copied TARGET
+    # stdlib explicitly. Host toolchain directories must never enter the package.
+    if 'phony/build/rust/std/prebuilt_rustc_copy_to_sysroot' in tokens:
+        cpu = 'aarch64' if target.endswith('_arm64') else 'x86_64'
+        libc = 'musl' if target.startswith('linux_musl_') else 'gnu'
+        stdlib = build / f'prebuilt_rustc_sysroot/lib/rustlib/{cpu}-unknown-linux-{libc}/lib'
+        if not all((stdlib / name).is_file() for name in ('libstd.rlib', 'libcore.rlib', 'liballoc.rlib')):
+            raise ValueError(f'missing target prebuilt Rust standard library: {stdlib}')
+        archives += [str(path.relative_to(build)) for path in sorted(stdlib.glob('*.rlib'))]
+    if not archives:
+        raise ValueError('no Rust dependencies found in v8_monolith build metadata')
+    return list(dict.fromkeys(archives))
+
+
 def package(args):
     v8 = ROOT / 'deps/v8'
     build_name, _ = PLATFORMS[args.platform]
@@ -61,10 +79,7 @@ def package(args):
     archive = output / asset_name(args.release, args.platform)
     # GN lists Rust archives separately from v8_monolith. Include its entire
     # transitive Rust link closure, together with the matching custom libc++.
-    ninja = (build / 'obj/v8_monolith.ninja').read_text()
-    rust = list(dict.fromkeys(p for p in shlex.split(ninja) if p.endswith('.rlib')))
-    if not rust:
-        raise ValueError('no Rust dependencies found in v8_monolith build metadata')
+    rust = rust_archives(build, args.platform)
     libraries = [build / 'obj/libv8_monolith.a',
                  build / 'obj/buildtools/third_party/libc++/libc++.a',
                  build / 'obj/buildtools/third_party/libc++abi/libc++abi.a']

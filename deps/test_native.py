@@ -109,5 +109,35 @@ class PlatformTests(unittest.TestCase):
             self.assertEqual(native.host_platform(), 'linux_musl_amd64')
 
 
+class RustArchiveTests(unittest.TestCase):
+    def test_collects_target_prebuilt_stdlib_but_not_host_stdlib(self):
+        with tempfile.TemporaryDirectory() as temp:
+            build = Path(temp)
+            (build / 'obj').mkdir()
+            (build / 'obj/v8_monolith.ninja').write_text(
+                'build monolith: alink obj/project.rlib || phony/build/rust/std/prebuilt_rustc_copy_to_sysroot\n')
+            target = build / 'prebuilt_rustc_sysroot/lib/rustlib/x86_64-unknown-linux-musl/lib'
+            target.mkdir(parents=True)
+            for name in ('libstd.rlib', 'libcore.rlib', 'liballoc.rlib'):
+                (target / name).touch()
+            host = build / 'clang_x64_glibc/prebuilt_rustc_sysroot/lib/rustlib/x86_64-unknown-linux-gnu/lib'
+            host.mkdir(parents=True)
+            (host / 'libstd.rlib').touch()
+            archives = native.rust_archives(build, 'linux_musl_amd64')
+            self.assertEqual(len(archives), 4)
+            self.assertIn('obj/project.rlib', archives)
+            self.assertTrue(any(p.endswith('/libcore.rlib') for p in archives))
+            self.assertFalse(any(p.startswith('clang_') for p in archives))
+
+    def test_fails_when_prebuilt_target_runtime_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            build = Path(temp)
+            (build / 'obj').mkdir()
+            (build / 'obj/v8_monolith.ninja').write_text(
+                'build monolith: alink obj/project.rlib || phony/build/rust/std/prebuilt_rustc_copy_to_sysroot\n')
+            with self.assertRaisesRegex(ValueError, 'prebuilt Rust'):
+                native.rust_archives(build, 'linux_musl_amd64')
+
+
 if __name__ == '__main__':
     unittest.main()
