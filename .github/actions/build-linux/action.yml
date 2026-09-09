@@ -6,7 +6,6 @@ inputs:
     description: 'Target Architecture'
     default: x64
     required: true
-    type: string
 
 runs:
   using: "composite"
@@ -15,20 +14,20 @@ runs:
       uses: actions/cache@v4
       with:
         path: .ccache
-        key: ${{ runner.os }}-${{ runner.arch }}:libv8:ccache:${{ github.run_number }}
+        key: ${{ runner.os }}-${{ inputs.target-arch }}:libv8:ccache:${{ github.run_number }}
         restore-keys: |
-          ${{ runner.os }}-${{ runner.arch }}:libv8:ccache:
+          ${{ runner.os }}-${{ inputs.target-arch }}:libv8:ccache:
 
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.8' # https://chromium.googlesource.com/chromium/tools/depot_tools.git/+/refs/heads/main/README.md
+        python-version: '3.11'
 
     - name: Setup Build Tools
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -yq ccache
+        sudo apt-get install -yq build-essential ccache curl git jq ninja-build python3 wget xz-utils pkg-config
         sudo update-ccache-symlinks
 
         echo "/usr/lib/ccache" >> "$GITHUB_PATH"

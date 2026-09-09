@@ -43,7 +43,7 @@ def get_directories_names(path):
   return sorted(flist)
 
 def package_name(package, index, total):
-  name = f'_ "rogchap.com/v8go/deps/include/{package}"'
+  name = f'_ "github.com/lkinley-rythmos/v8go/deps/include/{package}"'
   if (index + 1 == total):
     return name
   else:
@@ -60,20 +60,18 @@ def create_include_vendor_file(src_path, directories):
       temp_file.write(include_vendor_file_template % ('  '.join(package_names)))
 
 def create_vendor_files(src_path):
-  directories = get_directories_names(src_path)
-
-  create_include_vendor_file(src_path, directories)
-
-  for directory in directories:
-    directory_path = os.path.join(src_path, directory)
-
-    vendor_go_file_path = os.path.join(directory_path, 'vendor.go')
-
-    if os.path.isfile(vendor_go_file_path):
-      continue
-
-    with open(os.path.join(directory_path, 'vendor.go'), 'w') as temp_file:
-      temp_file.write(vendor_file_template % (directory, directory))
+  root = pathlib.Path(src_path)
+  for directory, children, _ in os.walk(root):
+    path = pathlib.Path(directory)
+    package = path.name
+    imports = []
+    for child in sorted(children):
+      relative = (path / child).relative_to(root).as_posix()
+      imports.append(f'_ "github.com/lkinley-rythmos/v8go/deps/include/{relative}"')
+    content = vendor_file_template % (package, package)
+    if imports:
+      content += '\nimport (\n\t' + '\n\t'.join(imports) + '\n)\n'
+    (path / 'vendor.go').write_text(content)
 
 def update_v8_version_file(src_path, version):
   with open(os.path.join(src_path, V8_VERSION_FILE), "w") as v8_file:

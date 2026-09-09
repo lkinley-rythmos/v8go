@@ -4,7 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.10.0] - 2023-04-10
+## [v0.10.0-rc.1] - Unreleased
+
+### Changed
+- Fork module path: `github.com/lkinley-rythmos/v8go`.
+- Upgrade the engine to V8 15.2.124.21 using the PR #416 build setup.
+- Distribute complete Linux amd64/arm64 native dependencies as release assets.
+  Consumers install a native package and use Clang/LLD 22 with matching libc++.
+- The initial candidate supports Linux with glibc; macOS packages are deferred.
+
+### Fixed
+- Restore Intl coverage and verify the linked V8 version.
+- Preserve nested V8 headers during Go module vendoring.
+- Remove live-network dependence and concurrent V8 access from the fetch example.
+
+## Upstream unreleased changes (previously labeled v0.10.0, 2023-04-10)
 
 ### Changed
 - Required Go version changed to 1.17 (needed for SharedArrayBuffer support)

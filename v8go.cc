@@ -4,6 +4,12 @@
 
 #include "v8go.h"
 
+#if !defined(__linux__)
+#error "This release candidate supports Linux only; see RELEASING.md."
+#elif !defined(_LIBCPP_VERSION)
+#error "V8 requires its matching libc++ headers. Install the native package and source env.sh; see RELEASING.md."
+#endif
+
 #include <stdio.h>
 
 #include <cstdlib>

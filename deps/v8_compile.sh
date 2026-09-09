@@ -4,6 +4,15 @@ set -e
 
 target_cpu="$1"
 
+case "$target_cpu" in
+  x64) build_dir="./out/release" ;;
+  arm64) build_dir="./out/release-arm64" ;;
+  *)
+    echo "Usage: $0 {x64|arm64}" >&2
+    exit 1
+    ;;
+esac
+
 dir="$(cd "$(dirname "$0")" && pwd)"
 v8_dir="${dir}/v8"
 
@@ -20,6 +29,12 @@ fi
 
 PATH="${depot_tools_dir}:$PATH"
 export PATH
+
+# The V8 checkout contains a separate depot_tools checkout whose Python
+# launcher must be initialized before invoking GN.
+if [ ! -f "${depot_tools_dir}/python3_bin_reldir.txt" ]; then
+  "${depot_tools_dir}/ensure_bootstrap"
+fi
 
 os=""
 case "$(uname -s)" in
@@ -44,6 +59,9 @@ fi
 
 echo "Building V8 for $os $target_cpu"
 
+# Allow memory-constrained builders to limit concurrent compiler processes.
+cores="${V8_BUILD_JOBS:-$cores}"
+
 cc_wrapper=""
 if command -v ccache >/dev/null 2>&1 ; then
   cc_wrapper="ccache"
@@ -56,17 +74,16 @@ v8_target_cpu=\"$target_cpu\""
 
 cd "${dir}/v8"
 
-gn gen "./out/release" --args="$gn_args"
+gn gen "$build_dir" --args="$gn_args"
 
-echo "==================== Build args start ===================="
-gn args "./out/release" --list | tee "${dir}/gn-args_${os}.txt"
-echo "==================== Build args end ===================="
+gn args "$build_dir" --list > "${dir}/gn-args_${os}_${target_cpu}.txt"
+echo "Effective build arguments saved to ${dir}/gn-args_${os}_${target_cpu}.txt"
 
 (
   set -x
-  ninja -C "./out/release" -j "$cores" v8_monolith
+  ninja -C "$build_dir" -j "$cores" v8_monolith libc++ libc++abi
 )
 
-ls -lh ./out/release/obj/libv8_*.a
+ls -lh "$build_dir"/obj/libv8_*.a
 
 cd -

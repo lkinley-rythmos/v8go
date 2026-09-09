@@ -2,6 +2,7 @@
 .DS_Store
 
 .build
+.ccache/
 .cipd
 .gclient_entries
 .gcs_entries
@@ -12,3 +13,5 @@ deps/.gclient_previous*
 c.out
 .idea/*
 /v8go.test
+/deps/*/libv8.a
+__pycache__/

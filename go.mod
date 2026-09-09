@@ -1,4 +1,4 @@
-module rogchap.com/v8go
+module github.com/lkinley-rythmos/v8go
 
 go 1.22
 

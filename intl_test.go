@@ -7,12 +7,10 @@ package v8go_test
 import (
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/lkinley-rythmos/v8go"
 )
 
 func TestIntlSupport(t *testing.T) {
-	t.Skip("Intl is not supported with the current build of v8 - need to re-enable this test when it is")
-
 	t.Parallel()
 
 	ctx := v8.NewContext(nil)
