@@ -74,11 +74,12 @@ v8_target_cpu=\"$target_cpu\""
 
 # Native Linux ARM64 uses host-native tools instead of Chromium's x64 prebuilts.
 if [ -n "${V8_CLANG_BASE_PATH:-}" ]; then
+  # GN embeds this identifier in a rustc --cfg argument; avoid shell whitespace.
   gn_args="$gn_args
 clang_base_path=\"$V8_CLANG_BASE_PATH\"
 clang_version=\"23\"
 rust_sysroot_absolute=\"$V8_RUST_SYSROOT\"
-rustc_version=\"$("$V8_RUST_SYSROOT/bin/rustc" -V)\"
+rustc_version=\"$("$V8_RUST_SYSROOT/bin/rustc" -V | tr -d ' ()')\"
 toolchain_supports_rust_thin_lto=false"
 fi
 
