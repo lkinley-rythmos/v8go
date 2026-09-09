@@ -29,3 +29,17 @@ solutions = [
     },
   },
 ]
+
+# Custom toolchain jobs provide native Clang, Rust, bindgen and llvm-ar. Avoid
+# downloading the unused Linux x86-64 compiler archives (over 300 MB).
+import os
+if os.environ.get('V8_CUSTOM_TOOLCHAIN') == '1':
+  solutions[0]['custom_deps'].update({
+    'v8/third_party/llvm-build/Release+Asserts': None,
+    'v8/third_party/rust-toolchain': None,
+  })
+# These hooks fetch upstream test suites; v8go runs its own consumer tests.
+solutions[0]['custom_hooks'] = [
+  {'name': 'wasm_spec_tests'},
+  {'name': 'wasm_js'},
+]

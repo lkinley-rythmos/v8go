@@ -1,28 +1,32 @@
 name: Build for Linux
-description: 'Build V8 for Linux'
+description: Build V8 with reusable pristine dependencies and compiler caches
 
 inputs:
   target-arch:
-    description: 'Target Architecture'
+    description: Target architecture
     default: x64
     required: true
-
   target-libc:
-    description: 'Target C library (glibc or musl)'
+    description: Target C library
     default: glibc
-    required: false
+  source-key:
+    description: Exact pristine dependency cache key
+    required: true
+  toolchain-key:
+    description: Exact custom compiler cache key
+    required: true
 
 runs:
-  using: "composite"
+  using: composite
   steps:
     - name: Restore CCache
-      uses: actions/cache@v5
+      id: ccache
+      uses: actions/cache/restore@v5
       with:
         path: .ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}-${{ inputs.target-libc }}:libv8:ccache:${{ github.run_number }}
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}-${{ inputs.target-libc }}:libv8:ccache:${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           ${{ runner.os }}-${{ runner.arch }}-${{ inputs.target-arch }}-${{ inputs.target-libc }}:libv8:ccache:
-          ${{ runner.arch == 'X64' && inputs.target-libc == 'glibc' && format('{0}-{1}:libv8:ccache:', runner.os, inputs.target-arch) || '' }}
 
     - name: Setup Python
       uses: actions/setup-python@v6
@@ -34,48 +38,118 @@ runs:
       run: |
         sudo apt-get update
         sudo apt-get install -yq build-essential ccache curl git jq ninja-build python3 wget xz-utils pkg-config
-        sudo update-ccache-symlinks
+        echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
+        export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+        mkdir -p "$CCACHE_DIR"
+        ccache --set-config=compiler_check=content
+        ccache --zero-stats
+        if [ '${{ runner.arch }}' = ARM64 ] || [ '${{ inputs.target-libc }}' = musl ]; then
+          echo 'V8_CUSTOM_TOOLCHAIN=1' >> "$GITHUB_ENV"
+        fi
 
-        echo "/usr/lib/ccache" >> "$GITHUB_PATH"
-
-        ccacheDir="${GITHUB_WORKSPACE}/.ccache"
-        test -d "$ccacheDir" || mkdir "$ccacheDir"
-
-        echo "CCACHE_DIR=$ccacheDir" >> "$GITHUB_ENV"
+    - name: Restore native Rust and bindgen
+      id: toolchain
+      if: ${{ runner.arch == 'ARM64' || inputs.target-libc == 'musl' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: .build/toolchains/rust
+        key: ${{ inputs.toolchain-key }}
 
     - name: Install native compiler toolchains
       if: ${{ runner.arch == 'ARM64' || inputs.target-libc == 'musl' }}
       shell: bash
-      env:
-        V8_TARGET_LIBC: ${{ inputs.target-libc }}
       run: bash deps/setup-linux-toolchains.sh
 
+    - name: Save native Rust and bindgen
+      if: ${{ (runner.arch == 'ARM64' || inputs.target-libc == 'musl') && steps.toolchain.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: .build/toolchains/rust
+        key: ${{ inputs.toolchain-key }}
+
+    - name: Initialize source submodules
+      shell: bash
+      run: git submodule update --init --depth 1 deps/v8 deps/depot_tools
+
+    - name: Restore pristine V8 dependencies
+      id: source
+      uses: actions/cache/restore@v5
+      with:
+        path: |
+          deps/v8/*
+          !deps/v8/.git
+          !deps/v8/out
+          deps/.gclient_entries
+          deps/.gclient_previous_sync_commits
+          deps/.gclient_previous_custom_vars
+        key: ${{ inputs.source-key }}
+
     - name: Download V8 Source
+      if: ${{ steps.source.outputs.cache-hit != 'true' }}
       shell: bash
       working-directory: ./deps
       run: ./v8_download.sh
 
     - name: Prepare ARM64 sysroot
-      shell: bash
       if: ${{ inputs.target-arch == 'arm64' }}
+      shell: bash
       working-directory: ./deps/v8
-      run: |
-        if [ "$(uname -m)" != aarch64 ]; then
-          sudo apt-get install -yq g++-aarch64-linux-gnu
-        fi
-        build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
+      run: build/linux/sysroot_scripts/install-sysroot.py --arch=arm64
+
+    # Save BEFORE any musl patches or build outputs are created, including on
+    # builds whose later compilation fails. Never fall back to another revision.
+    - name: Save pristine V8 dependencies
+      if: ${{ steps.source.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: |
+          deps/v8/*
+          !deps/v8/.git
+          !deps/v8/out
+          deps/.gclient_entries
+          deps/.gclient_previous_sync_commits
+          deps/.gclient_previous_custom_vars
+        key: ${{ inputs.source-key }}
+
+    - name: Restore musl sysroot
+      id: sysroot
+      if: ${{ inputs.target-libc == 'musl' }}
+      uses: actions/cache/restore@v5
+      with:
+        path: .build/musl-sysroot
+        key: musl-sysroot-v1-${{ runner.arch }}-${{ hashFiles('deps/Dockerfile.musl-sysroot', 'deps/setup-musl-sysroot.sh') }}
 
     - name: Prepare musl sysroot
-      if: ${{ inputs.target-libc == 'musl' }}
+      if: ${{ inputs.target-libc == 'musl' && steps.sysroot.outputs.cache-hit != 'true' }}
       shell: bash
       run: bash deps/setup-musl-sysroot.sh
 
+    - name: Configure musl sysroot
+      if: ${{ inputs.target-libc == 'musl' }}
+      shell: bash
+      run: echo "V8_MUSL_SYSROOT=$GITHUB_WORKSPACE/.build/musl-sysroot" >> "$GITHUB_ENV"
+
+    - name: Save musl sysroot
+      if: ${{ inputs.target-libc == 'musl' && steps.sysroot.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: .build/musl-sysroot
+        key: musl-sysroot-v1-${{ runner.arch }}-${{ hashFiles('deps/Dockerfile.musl-sysroot', 'deps/setup-musl-sysroot.sh') }}
+
     - name: Compile V8
+      id: compile
       shell: bash
       working-directory: ./deps
       run: ./v8_compile.sh ${{ inputs.target-arch }} ${{ inputs.target-libc }}
 
     - name: Show CCache Status
+      if: ${{ always() && steps.compile.outcome != 'skipped' }}
       shell: bash
-      working-directory: ./deps
-      run: ccache -s
+      run: ccache --show-stats
+
+    - name: Preserve CCache after success or failure
+      if: ${{ !cancelled() && (steps.compile.outcome == 'success' || steps.compile.outcome == 'failure') }}
+      uses: actions/cache/save@v5
+      with:
+        path: .ccache
+        key: ${{ steps.ccache.outputs.cache-primary-key }}

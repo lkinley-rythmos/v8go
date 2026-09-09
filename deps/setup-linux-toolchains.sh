@@ -17,7 +17,9 @@ curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
 printf '%s\n' 'deb [signed-by=/usr/share/keyrings/llvm.gpg] https://apt.llvm.org/noble/ llvm-toolchain-noble-23 main' \
   | sudo tee /etc/apt/sources.list.d/llvm.list
 sudo apt-get update
-sudo apt-get install -yq clang-23 lld-23 llvm-23 libclang-rt-23-dev libclang-23-dev
+llvm_version=$(cat "$root/deps/llvm-version")
+sudo apt-get install -yq "clang-23=$llvm_version" "lld-23=$llvm_version" \
+  "llvm-23=$llvm_version" "libclang-rt-23-dev=$llvm_version" "libclang-23-dev=$llvm_version"
 
 # Chromium expects the compiler runtime under a target-triple directory;
 # Debian packages use lib/linux and put the architecture in the filename.
@@ -45,18 +47,21 @@ install_component() {
   tar -xJf "$temp_dir/$archive.tar.xz" -C "$temp_dir"
   "$temp_dir/$archive/install.sh" --prefix="$rust_dir" --disable-ldconfig
 }
-for component in rustc rust-std rustfmt cargo; do
-  install_component "$component" "$arch-unknown-linux-gnu"
-done
-if [ "${V8_TARGET_LIBC:-glibc}" = musl ]; then
+# An exact toolchain cache contains both target standard libraries so ARM64
+# glibc and musl jobs can share it. Still configure LLVM and exports on a hit.
+if [ ! -f "$rust_dir/.v8go-complete" ]; then
+  for component in rustc rust-std rustfmt cargo; do
+    install_component "$component" "$arch-unknown-linux-gnu"
+  done
   install_component rust-std "$arch-unknown-linux-musl"
-fi
 
-# bindgen is a separate host executable, not part of rustc. Match the
-# bindgen version pinned in V8's tools/rust/build_bindgen.py.
-PATH="$rust_dir/bin:$PATH" CARGO_HOME="$root/.build/toolchains/cargo" \
-  "$rust_dir/bin/cargo" install bindgen-cli --version 0.72.1 --locked \
-    --root "$rust_dir" --jobs 4
+  # bindgen is a separate host executable, not part of rustc. Match the
+  # bindgen version pinned in V8's tools/rust/build_bindgen.py.
+  PATH="$rust_dir/bin:$PATH" CARGO_HOME="$root/.build/toolchains/cargo" \
+    "$rust_dir/bin/cargo" install bindgen-cli --version 0.72.1 --locked \
+      --root "$rust_dir" --jobs 4
+  touch "$rust_dir/.v8go-complete"
+fi
 ln -sf /usr/lib/llvm-23/lib/libclang.so "$rust_dir/lib/libclang.so"
 "$rust_dir/bin/bindgen" --version
 "$rust_dir/bin/rustfmt" --version

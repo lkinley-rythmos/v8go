@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 sysroot="$root/.build/musl-sysroot"
 mkdir -p "$sysroot"
-docker build -f "$root/deps/Dockerfile.musl-sysroot" -t v8go-musl-sysroot "$root"
+docker build -t v8go-musl-sysroot - < "$root/deps/Dockerfile.musl-sysroot"
 container=$(docker create v8go-musl-sysroot)
 trap 'docker rm "$container" >/dev/null' EXIT
 docker export "$container" | tar --no-same-owner -xf - -C "$sysroot"

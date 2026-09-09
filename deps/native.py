@@ -120,6 +120,7 @@ def package(args):
         shutil.copyfile(ROOT / 'LICENSE', stage / 'licenses/LICENSE.v8go')
         manifest = {
             'release': args.release, 'platform': args.platform,
+            'build_input_key': os.environ.get('V8_BUILD_INPUT_KEY'),
             'v8': (ROOT / 'deps/VERSION').read_text().strip(),
             'v8_commit': subprocess.check_output(['git', '-C', str(v8), 'rev-parse', 'HEAD'], text=True).strip(),
             'v8go_commit': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
@@ -194,6 +195,9 @@ def install(args):
                     with tar.extractfile(member) as src, dest.open('wb') as output:
                         shutil.copyfileobj(src, output)
         manifest = json.loads((stage / 'manifest.json').read_text())
+        expected_key = os.environ.get('V8_BUILD_INPUT_KEY')
+        if expected_key and manifest.get('build_input_key') != expected_key:
+            raise ValueError('archive build-input fingerprint does not match this CI build')
         if manifest['release'] != args.release or manifest['platform'] != args.platform:
             raise ValueError('archive release/platform does not match the requested installation')
         if manifest['v8'] != (ROOT / 'deps/VERSION').read_text().strip():

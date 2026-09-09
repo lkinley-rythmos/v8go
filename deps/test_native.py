@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -67,6 +68,20 @@ class InstallTests(unittest.TestCase):
         self.assertIn('unsafe', result.stderr.lower())
         self.assertFalse((self.root / 'escaped').exists())
         self.assertFalse(self.prefix.exists())
+
+    def test_ci_rejects_sdk_with_another_input_fingerprint(self):
+        with mock.patch.dict(os.environ, {'V8_BUILD_INPUT_KEY': 'expected-key'}):
+            result = self.install(self.make_archive())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('fingerprint', result.stderr)
+        self.assertFalse(self.prefix.exists())
+
+    def test_ci_accepts_matching_sdk_fingerprint(self):
+        manifest = {'release': 'v0.10.0-rc.1', 'v8': '15.2.124.21',
+                    'platform': 'linux_amd64', 'build_input_key': 'expected-key'}
+        with mock.patch.dict(os.environ, {'V8_BUILD_INPUT_KEY': 'expected-key'}):
+            result = self.install(self.make_archive({'manifest.json': json.dumps(manifest).encode()}))
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_rejects_wrong_release(self):
         result = self.install(self.make_archive(version='v0.9.0'))
