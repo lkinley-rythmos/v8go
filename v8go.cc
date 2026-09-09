@@ -7,7 +7,8 @@
 #if !defined(__linux__)
 #error "This release candidate supports Linux only; see RELEASING.md."
 #elif !defined(_LIBCPP_VERSION)
-#error "V8 requires its matching libc++ headers. Install the native package and source env.sh; see RELEASING.md."
+#error \
+    "V8 requires its matching libc++ headers. Install the native package and source env.sh; see RELEASING.md."
 #endif
 
 #include <stdio.h>
@@ -36,7 +37,7 @@ struct m_ctx {
   std::unordered_map<long, m_value*> vals;
   std::vector<m_unboundScript*> unboundScripts;
   Persistent<Context> ptr;
-  long nextValId;
+  long nextValId = 0;
 };
 
 struct m_value {
@@ -67,7 +68,10 @@ const char* CopyString(String::Utf8Value& value) {
   if (value.length() == 0) {
     return nullptr;
   }
-  return CopyString(std::string(*value, value.length()));
+  char* mem = static_cast<char*>(malloc(value.length() + 1));
+  memcpy(mem, *value, value.length());
+  mem[value.length()] = 0;
+  return mem;
 }
 
 static RtnError ExceptionError(TryCatch& try_catch,
@@ -177,6 +181,11 @@ static inline m_ctx* isolateInternalContext(Isolate* iso) {
   return static_cast<m_ctx*>(iso->GetData(0));
 }
 
+int IsolateRetainedValueCount(IsolatePtr iso) {
+  Locker locker(iso);
+  return isolateInternalContext(iso)->vals.size();
+}
+
 void IsolatePerformMicrotaskCheckpoint(IsolatePtr iso) {
   ISOLATE_SCOPE(iso)
   iso->PerformMicrotaskCheckpoint();
@@ -221,7 +230,9 @@ IsolateHStatistics IsolationGetHeapStatistics(IsolatePtr iso) {
 
 RtnUnboundScript IsolateCompileUnboundScript(IsolatePtr iso,
                                              const char* s,
+                                             int s_len,
                                              const char* o,
+                                             int o_len,
                                              CompileOptions opts) {
   ISOLATE_SCOPE_INTERNAL_CONTEXT(iso);
   TryCatch try_catch(iso);
@@ -231,9 +242,11 @@ RtnUnboundScript IsolateCompileUnboundScript(IsolatePtr iso,
   RtnUnboundScript rtn = {};
 
   Local<String> src =
-      String::NewFromUtf8(iso, s, NewStringType::kNormal).ToLocalChecked();
+      String::NewFromUtf8(iso, s ? s : "", NewStringType::kNormal, s_len)
+          .ToLocalChecked();
   Local<String> ogn =
-      String::NewFromUtf8(iso, o, NewStringType::kNormal).ToLocalChecked();
+      String::NewFromUtf8(iso, o ? o : "", NewStringType::kNormal, o_len)
+          .ToLocalChecked();
 
   ScriptCompiler::CompileOptions option =
       static_cast<ScriptCompiler::CompileOptions>(opts.compileOption);
@@ -278,8 +291,7 @@ ValuePtr IsolateThrowException(IsolatePtr iso, ValuePtr value) {
   new_val->id = 0;
   new_val->iso = iso;
   new_val->ctx = ctx;
-  new_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, throw_ret_val);
+  new_val->ptr.Reset(iso, throw_ret_val);
 
   return tracked_value(ctx, new_val);
 }
@@ -412,23 +424,29 @@ void TemplateFreeWrapper(TemplatePtr tmpl) {
 
 void TemplateSetValue(TemplatePtr ptr,
                       const char* name,
+                      int name_len,
                       ValuePtr val,
                       int attributes) {
   LOCAL_TEMPLATE(ptr);
 
   Local<String> prop_name =
-      String::NewFromUtf8(iso, name, NewStringType::kNormal).ToLocalChecked();
+      String::NewFromUtf8(iso, name ? name : "", NewStringType::kNormal,
+                          name_len)
+          .ToLocalChecked();
   tmpl->Set(prop_name, val->ptr.Get(iso), (PropertyAttribute)attributes);
 }
 
 void TemplateSetTemplate(TemplatePtr ptr,
                          const char* name,
+                         int name_len,
                          TemplatePtr obj,
                          int attributes) {
   LOCAL_TEMPLATE(ptr);
 
   Local<String> prop_name =
-      String::NewFromUtf8(iso, name, NewStringType::kNormal).ToLocalChecked();
+      String::NewFromUtf8(iso, name ? name : "", NewStringType::kNormal,
+                          name_len)
+          .ToLocalChecked();
   tmpl->Set(prop_name, obj->ptr.Get(iso), (PropertyAttribute)attributes);
 }
 
@@ -464,7 +482,7 @@ RtnValue ObjectTemplateNewInstance(TemplatePtr ptr, ContextPtr ctx) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, obj);
+  val->ptr.Reset(iso, obj);
   rtn.value = tracked_value(ctx, val);
   return rtn;
 }
@@ -490,11 +508,12 @@ static void FunctionTemplateCallback(const FunctionCallbackInfo<Value>& info) {
   ISOLATE_SCOPE(iso);
 
   // This callback function can be called from any Context, which we only know
-  // at runtime. We extract the Context reference from the embedder data so that
-  // we can use the context registry to match the Context on the Go side
+  // at runtime. Embedder data supplies the native context directly and its
+  // integer reference for the single Go registry lookup during dispatch.
   Local<Context> local_ctx = iso->GetCurrentContext();
   int ctx_ref = local_ctx->GetEmbedderData(1).As<Integer>()->Value();
-  m_ctx* ctx = goContext(ctx_ref);
+  m_ctx* ctx = static_cast<m_ctx*>(local_ctx->GetAlignedPointerFromEmbedderData(
+      iso, 2, kEmbedderDataTypeTagDefault));
 
   int callback_ref = info.Data().As<Integer>()->Value();
 
@@ -502,8 +521,7 @@ static void FunctionTemplateCallback(const FunctionCallbackInfo<Value>& info) {
   _this->id = 0;
   _this->iso = iso;
   _this->ctx = ctx;
-  _this->ptr.Reset(iso, Persistent<Value, CopyablePersistentTraits<Value>>(
-                            iso, info.This()));
+  _this->ptr.Reset(iso, info.This());
 
   int args_count = info.Length();
   ValuePtr thisAndArgs[args_count + 1];
@@ -514,8 +532,7 @@ static void FunctionTemplateCallback(const FunctionCallbackInfo<Value>& info) {
     val->id = 0;
     val->iso = iso;
     val->ctx = ctx;
-    val->ptr.Reset(
-        iso, Persistent<Value, CopyablePersistentTraits<Value>>(iso, info[i]));
+    val->ptr.Reset(iso, info[i]);
     args[i] = tracked_value(ctx, val);
   }
 
@@ -564,7 +581,7 @@ RtnValue FunctionTemplateGetFunction(TemplatePtr ptr, ContextPtr ctx) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, fn);
+  val->ptr.Reset(iso, fn);
   rtn.value = tracked_value(ctx, val);
   return rtn;
 }
@@ -605,6 +622,10 @@ ContextPtr NewContext(IsolatePtr iso,
   m_ctx* ctx = new m_ctx;
   ctx->ptr.Reset(iso, local_ctx);
   ctx->iso = iso;
+  // Keep the native context beside the Go registry identifier. Slot 0 is
+  // reserved for the debugger; neither slot contains a Go pointer.
+  local_ctx->SetAlignedPointerInEmbedderData(2, ctx,
+                                             kEmbedderDataTypeTagDefault);
   return ctx;
 }
 
@@ -633,15 +654,19 @@ void ContextFree(ContextPtr ctx) {
   delete ctx;
 }
 
-RtnValue RunScript(ContextPtr ctx, const char* source, const char* origin) {
+RtnValue RunScript(ContextPtr ctx,
+                   const char* source,
+                   int source_len,
+                   const char* origin,
+                   int origin_len) {
   LOCAL_CONTEXT(ctx);
 
   RtnValue rtn = {};
 
-  MaybeLocal<String> maybeSrc =
-      String::NewFromUtf8(iso, source, NewStringType::kNormal);
-  MaybeLocal<String> maybeOgn =
-      String::NewFromUtf8(iso, origin, NewStringType::kNormal);
+  MaybeLocal<String> maybeSrc = String::NewFromUtf8(
+      iso, source ? source : "", NewStringType::kNormal, source_len);
+  MaybeLocal<String> maybeOgn = String::NewFromUtf8(
+      iso, origin ? origin : "", NewStringType::kNormal, origin_len);
   Local<String> src, ogn;
   if (!maybeSrc.ToLocal(&src) || !maybeOgn.ToLocal(&ogn)) {
     rtn.error = ExceptionError(try_catch, iso, local_ctx);
@@ -663,7 +688,7 @@ RtnValue RunScript(ContextPtr ctx, const char* source, const char* origin) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  val->ptr.Reset(iso, result);
 
   rtn.value = tracked_value(ctx, val);
   return rtn;
@@ -713,18 +738,19 @@ RtnValue UnboundScriptRun(ContextPtr ctx, UnboundScriptPtr us_ptr) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  val->ptr.Reset(iso, result);
 
   rtn.value = tracked_value(ctx, val);
   return rtn;
 }
 
-RtnValue JSONParse(ContextPtr ctx, const char* str) {
+RtnValue JSONParse(ContextPtr ctx, const char* str, int length) {
   LOCAL_CONTEXT(ctx);
   RtnValue rtn = {};
 
   Local<String> v8Str;
-  if (!String::NewFromUtf8(iso, str, NewStringType::kNormal).ToLocal(&v8Str)) {
+  if (!String::NewFromUtf8(iso, str ? str : "", NewStringType::kNormal, length)
+           .ToLocal(&v8Str)) {
     rtn.error = ExceptionError(try_catch, iso, local_ctx);
   }
 
@@ -737,7 +763,7 @@ RtnValue JSONParse(ContextPtr ctx, const char* str) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  val->ptr.Reset(iso, result);
 
   rtn.value = tracked_value(ctx, val);
   return rtn;
@@ -795,8 +821,7 @@ ValuePtr ContextGlobal(ContextPtr ctx) {
 
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(
-      iso, local_ctx->Global());
+  val->ptr.Reset(iso, local_ctx->Global());
 
   return tracked_value(ctx, val);
 }
@@ -826,8 +851,7 @@ ValuePtr NewValueInteger(IsolatePtr iso, int32_t v) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(
-      iso, Integer::New(iso, v));
+  val->ptr.Reset(iso, Integer::New(iso, v));
   return tracked_value(ctx, val);
 }
 
@@ -837,8 +861,7 @@ ValuePtr NewValueIntegerFromUnsigned(IsolatePtr iso, uint32_t v) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(
-      iso, Integer::NewFromUnsigned(iso, v));
+  val->ptr.Reset(iso, Integer::NewFromUnsigned(iso, v));
   return tracked_value(ctx, val);
 }
 
@@ -847,7 +870,7 @@ RtnValue NewValueString(IsolatePtr iso, const char* v, int v_length) {
   TryCatch try_catch(iso);
   RtnValue rtn = {};
   Local<String> str;
-  if (!String::NewFromUtf8(iso, v, NewStringType::kNormal, v_length)
+  if (!String::NewFromUtf8(iso, v ? v : "", NewStringType::kNormal, v_length)
            .ToLocal(&str)) {
     rtn.error = ExceptionError(try_catch, iso, ctx->ptr.Get(iso));
     return rtn;
@@ -856,7 +879,7 @@ RtnValue NewValueString(IsolatePtr iso, const char* v, int v_length) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, str);
+  val->ptr.Reset(iso, str);
   rtn.value = tracked_value(ctx, val);
   return rtn;
 }
@@ -867,7 +890,7 @@ ValuePtr NewValueNull(IsolatePtr iso) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, Null(iso));
+  val->ptr.Reset(iso, Null(iso));
   return tracked_value(ctx, val);
 }
 
@@ -877,8 +900,7 @@ ValuePtr NewValueUndefined(IsolatePtr iso) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, Undefined(iso));
+  val->ptr.Reset(iso, Undefined(iso));
   return tracked_value(ctx, val);
 }
 
@@ -888,8 +910,7 @@ ValuePtr NewValueBoolean(IsolatePtr iso, int v) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(
-      iso, Boolean::New(iso, v));
+  val->ptr.Reset(iso, Boolean::New(iso, v));
   return tracked_value(ctx, val);
 }
 
@@ -899,8 +920,7 @@ ValuePtr NewValueNumber(IsolatePtr iso, double v) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(
-      iso, Number::New(iso, v));
+  val->ptr.Reset(iso, Number::New(iso, v));
   return tracked_value(ctx, val);
 }
 
@@ -910,8 +930,7 @@ ValuePtr NewValueBigInt(IsolatePtr iso, int64_t v) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(
-      iso, BigInt::New(iso, v));
+  val->ptr.Reset(iso, BigInt::New(iso, v));
   return tracked_value(ctx, val);
 }
 
@@ -921,8 +940,7 @@ ValuePtr NewValueBigIntFromUnsigned(IsolatePtr iso, uint64_t v) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(
-      iso, BigInt::NewFromUnsigned(iso, v));
+  val->ptr.Reset(iso, BigInt::NewFromUnsigned(iso, v));
   return tracked_value(ctx, val);
 }
 
@@ -945,7 +963,7 @@ RtnValue NewValueBigIntFromWords(IsolatePtr iso,
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, bigint);
+  val->ptr.Reset(iso, bigint);
   rtn.value = tracked_value(ctx, val);
   return rtn;
 }
@@ -998,16 +1016,18 @@ RtnString ValueToDetailString(ValuePtr ptr) {
 
 RtnString ValueToString(ValuePtr ptr) {
   LOCAL_VALUE(ptr);
-  RtnString rtn = {0};
-  // String::Utf8Value will result in an empty string if conversion to a string
-  // fails
-  // TODO: Consider propagating the JS error. A fallback value could be returned
-  // in Value.String()
-  String::Utf8Value src(iso, value);
-  char* data = static_cast<char*>(malloc(src.length()));
-  memcpy(data, *src, src.length());
+  RtnString rtn = {};
+  Local<String> str;
+  // Preserve Value.String's empty result when conversion throws.
+  if (!value->ToString(local_ctx).ToLocal(&str))
+    return rtn;
+  size_t length = str->Utf8Length(iso);
+  if (length == 0)
+    return rtn;
+  char* data = static_cast<char*>(malloc(length));
+  str->WriteUtf8(iso, data, length, String::WriteFlags::kReplaceInvalidUtf8);
   rtn.data = data;
-  rtn.length = src.length();
+  rtn.length = static_cast<int>(length);
   return rtn;
 }
 
@@ -1043,7 +1063,7 @@ RtnValue ValueToObject(ValuePtr ptr) {
   new_val->id = 0;
   new_val->iso = iso;
   new_val->ctx = ctx;
-  new_val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, obj);
+  new_val->ptr.Reset(iso, obj);
   rtn.value = tracked_value(ctx, new_val);
   return rtn;
 }
@@ -1333,29 +1353,157 @@ int ValueIsModuleNamespaceObject(ValuePtr ptr) {
   LOCAL_VALUE(ptr)        \
   Local<Object> obj = value.As<Object>()
 
-void ObjectSet(ValuePtr ptr, const char* key, ValuePtr prop_val) {
-  LOCAL_OBJECT(ptr);
-  Local<String> key_val =
-      String::NewFromUtf8(iso, key, NewStringType::kNormal).ToLocalChecked();
-  obj->Set(local_ctx, key_val, prop_val->ptr.Get(iso)).Check();
-}
-
-void ObjectSetIdx(ValuePtr ptr, uint32_t idx, ValuePtr prop_val) {
-  LOCAL_OBJECT(ptr);
-  obj->Set(local_ctx, idx, prop_val->ptr.Get(iso)).Check();
-}
-
-int ObjectSetInternalField(ValuePtr ptr, int idx, ValuePtr val_ptr) {
-  LOCAL_OBJECT(ptr);
-  m_value* prop_val = static_cast<m_value*>(val_ptr);
-
-  if (idx >= obj->InternalFieldCount()) {
-    return 0;
+static MaybeLocal<Value> primitiveValue(Isolate* iso,
+                                        Local<Context> ctx,
+                                        PrimitiveValue input,
+                                        ValuePtr handle,
+                                        const void* data) {
+  switch (input.kind) {
+    case PrimitiveHandle:
+      return handle->ptr.Get(iso);
+    case PrimitiveString: {
+      Local<String> str;
+      if (!String::NewFromUtf8(iso, data ? static_cast<const char*>(data) : "",
+                               NewStringType::kNormal, input.length)
+               .ToLocal(&str)) {
+        return {};
+      }
+      return str;
+    }
+    case PrimitiveInt32:
+      return Integer::New(iso, static_cast<int32_t>(input.signed_value));
+    case PrimitiveUint32:
+      return Integer::NewFromUnsigned(
+          iso, static_cast<uint32_t>(input.unsigned_value));
+    case PrimitiveInt64:
+      return BigInt::New(iso, input.signed_value);
+    case PrimitiveUint64:
+      return BigInt::NewFromUnsigned(iso, input.unsigned_value);
+    case PrimitiveNumber:
+      return Number::New(iso, input.number);
+    case PrimitiveBoolean:
+      return Boolean::New(iso, input.signed_value != 0);
+    case PrimitiveWords: {
+      Local<BigInt> bigint;
+      if (!BigInt::NewFromWords(ctx, static_cast<int>(input.signed_value),
+                                input.length,
+                                static_cast<const uint64_t*>(data))
+               .ToLocal(&bigint)) {
+        return {};
+      }
+      return bigint;
+    }
+    default:
+      return {};
   }
+}
 
-  obj->SetInternalField(idx, prop_val->ptr.Get(iso));
+static RtnStatus assignmentResult(Maybe<bool> result,
+                                  TryCatch& try_catch,
+                                  Isolate* iso,
+                                  Local<Context> ctx) {
+  if (result.IsNothing()) {
+    return {0, ExceptionError(try_catch, iso, ctx)};
+  }
+  if (!result.FromJust()) {
+    return {0,
+            {CopyString("TypeError: property assignment rejected"), nullptr,
+             nullptr}};
+  }
+  return {1, {}};
+}
 
-  return 1;
+RtnStatus ObjectSetIdxHandle(ValuePtr ptr, uint32_t index, ValuePtr handle) {
+  LOCAL_OBJECT(ptr);
+  if (!handle || handle->iso != iso)
+    return {-2, {}};
+  return assignmentResult(obj->Set(local_ctx, index, handle->ptr.Get(iso)),
+                          try_catch, iso, local_ctx);
+}
+
+RtnStatus ObjectSetInternalHandle(ValuePtr ptr,
+                                  uint32_t index,
+                                  ValuePtr handle) {
+  LOCAL_OBJECT(ptr);
+  if (!handle || handle->iso != iso)
+    return {-2, {}};
+  if (index >= static_cast<uint32_t>(obj->InternalFieldCount()))
+    return {-1, {}};
+  obj->SetInternalField(static_cast<int>(index), handle->ptr.Get(iso));
+  return {1, {}};
+}
+
+RtnStatus ObjectSetValue(ValuePtr ptr,
+                         int target,
+                         const char* key,
+                         int key_length,
+                         uint32_t index,
+                         PrimitiveValue input,
+                         ValuePtr handle,
+                         const void* data) {
+  LOCAL_OBJECT(ptr);
+  if (input.kind == PrimitiveHandle && (!handle || handle->iso != iso)) {
+    return {-2, {}};
+  }
+  if (target == PropertyInternal &&
+      index >= static_cast<uint32_t>(obj->InternalFieldCount())) {
+    return {-1, {}};
+  }
+  Local<Value> prop;
+  if (!primitiveValue(iso, local_ctx, input, handle, data).ToLocal(&prop)) {
+    return {0, ExceptionError(try_catch, iso, local_ctx)};
+  }
+  if (target == PropertyInternal) {
+    obj->SetInternalField(static_cast<int>(index), prop);
+    return {1, {}};
+  }
+  if (target == PropertyIndexed) {
+    return assignmentResult(obj->Set(local_ctx, index, prop), try_catch, iso,
+                            local_ctx);
+  }
+  Local<String> name;
+  if (!String::NewFromUtf8(iso, key ? key : "", NewStringType::kNormal,
+                           key_length)
+           .ToLocal(&name)) {
+    return {0, ExceptionError(try_catch, iso, local_ctx)};
+  }
+  return assignmentResult(obj->Set(local_ctx, name, prop), try_catch, iso,
+                          local_ctx);
+}
+
+RtnStatus ObjectSetMany(ValuePtr ptr,
+                        const char* keys,
+                        const PropertyName* names,
+                        ValuePtr values[],
+                        size_t count) {
+  LOCAL_OBJECT(ptr);
+  // Check every handle before accessing it through this isolate or mutating.
+  for (size_t i = 0; i < count; i++) {
+    if (!values[i] || values[i]->iso != iso)
+      return {-2, {}};
+  }
+  // A setter can reenter Go and release a later argument's bridge wrapper.
+  // Snapshot locals before executing any user code, as FunctionCall does.
+  std::vector<Local<Value>> local_values(count);
+  for (size_t i = 0; i < count; i++) {
+    local_values[i] = values[i]->ptr.Get(iso);
+  }
+  for (size_t i = 0; i < count; i++) {
+    // Bound local handles even for a large batch. User setters may run JS.
+    HandleScope item_scope(iso);
+    Local<String> name;
+    const char* bytes = keys ? keys + names[i].offset : "";
+    if (!String::NewFromUtf8(iso, bytes, NewStringType::kNormal,
+                             names[i].length)
+             .ToLocal(&name)) {
+      return {0, ExceptionError(try_catch, iso, local_ctx)};
+    }
+    RtnStatus result = assignmentResult(
+        obj->Set(local_ctx, name, local_values[i]), try_catch, iso, local_ctx);
+    if (result.status != 1)
+      return result;
+  }
+  return {1, {}};
 }
 
 int ObjectInternalFieldCount(ValuePtr ptr) {
@@ -1363,12 +1511,13 @@ int ObjectInternalFieldCount(ValuePtr ptr) {
   return obj->InternalFieldCount();
 }
 
-RtnValue ObjectGet(ValuePtr ptr, const char* key) {
+RtnValue ObjectGet(ValuePtr ptr, const char* key, int key_length) {
   LOCAL_OBJECT(ptr);
   RtnValue rtn = {};
 
   Local<String> key_val;
-  if (!String::NewFromUtf8(iso, key, NewStringType::kNormal)
+  if (!String::NewFromUtf8(iso, key ? key : "", NewStringType::kNormal,
+                           key_length)
            .ToLocal(&key_val)) {
     rtn.error = ExceptionError(try_catch, iso, local_ctx);
     return rtn;
@@ -1382,8 +1531,7 @@ RtnValue ObjectGet(ValuePtr ptr, const char* key) {
   new_val->id = 0;
   new_val->iso = iso;
   new_val->ctx = ctx;
-  new_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  new_val->ptr.Reset(iso, result);
 
   rtn.value = tracked_value(ctx, new_val);
   return rtn;
@@ -1402,8 +1550,7 @@ ValuePtr ObjectGetInternalField(ValuePtr ptr, int idx) {
   new_val->id = 0;
   new_val->iso = iso;
   new_val->ctx = ctx;
-  new_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  new_val->ptr.Reset(iso, result);
 
   return tracked_value(ctx, new_val);
 }
@@ -1421,17 +1568,18 @@ RtnValue ObjectGetIdx(ValuePtr ptr, uint32_t idx) {
   new_val->id = 0;
   new_val->iso = iso;
   new_val->ctx = ctx;
-  new_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  new_val->ptr.Reset(iso, result);
 
   rtn.value = tracked_value(ctx, new_val);
   return rtn;
 }
 
-int ObjectHas(ValuePtr ptr, const char* key) {
+int ObjectHas(ValuePtr ptr, const char* key, int key_length) {
   LOCAL_OBJECT(ptr);
   Local<String> key_val =
-      String::NewFromUtf8(iso, key, NewStringType::kNormal).ToLocalChecked();
+      String::NewFromUtf8(iso, key ? key : "", NewStringType::kNormal,
+                          key_length)
+          .ToLocalChecked();
   return obj->Has(local_ctx, key_val).ToChecked();
 }
 
@@ -1440,10 +1588,12 @@ int ObjectHasIdx(ValuePtr ptr, uint32_t idx) {
   return obj->Has(local_ctx, idx).ToChecked();
 }
 
-int ObjectDelete(ValuePtr ptr, const char* key) {
+int ObjectDelete(ValuePtr ptr, const char* key, int key_length) {
   LOCAL_OBJECT(ptr);
   Local<String> key_val =
-      String::NewFromUtf8(iso, key, NewStringType::kNormal).ToLocalChecked();
+      String::NewFromUtf8(iso, key ? key : "", NewStringType::kNormal,
+                          key_length)
+          .ToLocalChecked();
   return obj->Delete(local_ctx, key_val).ToChecked();
 }
 
@@ -1466,7 +1616,7 @@ RtnValue NewPromiseResolver(ContextPtr ctx) {
   val->id = 0;
   val->iso = iso;
   val->ctx = ctx;
-  val->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, resolver);
+  val->ptr.Reset(iso, resolver);
   rtn.value = tracked_value(ctx, val);
   return rtn;
 }
@@ -1479,8 +1629,7 @@ ValuePtr PromiseResolverGetPromise(ValuePtr ptr) {
   promise_val->id = 0;
   promise_val->iso = iso;
   promise_val->ctx = ctx;
-  promise_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, promise);
+  promise_val->ptr.Reset(iso, promise);
   return tracked_value(ctx, promise_val);
 }
 
@@ -1522,8 +1671,7 @@ RtnValue PromiseThen(ValuePtr ptr, int callback_ref) {
   result_val->id = 0;
   result_val->iso = iso;
   result_val->ctx = ctx;
-  result_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  result_val->ptr.Reset(iso, result);
   rtn.value = tracked_value(ctx, result_val);
   return rtn;
 }
@@ -1556,8 +1704,7 @@ RtnValue PromiseThen2(ValuePtr ptr, int on_fulfilled_ref, int on_rejected_ref) {
   result_val->id = 0;
   result_val->iso = iso;
   result_val->ctx = ctx;
-  result_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  result_val->ptr.Reset(iso, result);
   rtn.value = tracked_value(ctx, result_val);
   return rtn;
 }
@@ -1582,8 +1729,7 @@ RtnValue PromiseCatch(ValuePtr ptr, int callback_ref) {
   result_val->id = 0;
   result_val->iso = iso;
   result_val->ctx = ctx;
-  result_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  result_val->ptr.Reset(iso, result);
   rtn.value = tracked_value(ctx, result_val);
   return rtn;
 }
@@ -1596,8 +1742,7 @@ ValuePtr PromiseResult(ValuePtr ptr) {
   result_val->id = 0;
   result_val->iso = iso;
   result_val->ctx = ctx;
-  result_val->ptr =
-      Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  result_val->ptr.Reset(iso, result);
   return tracked_value(ctx, result_val);
 }
 
@@ -1610,6 +1755,60 @@ static void buildCallArguments(Isolate* iso,
   for (int i = 0; i < argc; i++) {
     argv[i] = args[i]->ptr.Get(iso);
   }
+}
+
+RtnMethod ObjectMethodCall(ValuePtr ptr,
+                           const char* key,
+                           int key_length,
+                           int argc,
+                           ValuePtr args[]) {
+  LOCAL_OBJECT(ptr);
+  RtnMethod rtn = {};
+  // Getters may reenter Go and release an argument wrapper.
+  Local<Value> small_args[8];
+  std::vector<Local<Value>> large_args;
+  Local<Value>* argv = small_args;
+  if (argc > 8) {
+    large_args.resize(argc);
+    argv = large_args.data();
+  }
+  for (int i = 0; i < argc; i++) {
+    if (!args[i] || args[i]->iso != iso) {
+      rtn.result.error = {
+          CopyString(
+              "TypeError: method argument belongs to a different isolate"),
+          nullptr, nullptr};
+      return rtn;
+    }
+  }
+  buildCallArguments(iso, argv, argc, args);
+  Local<String> name;
+  Local<Value> method;
+  if (!String::NewFromUtf8(iso, key ? key : "", NewStringType::kNormal,
+                           key_length)
+           .ToLocal(&name) ||
+      !obj->Get(local_ctx, name).ToLocal(&method)) {
+    rtn.result.error = ExceptionError(try_catch, iso, local_ctx);
+    return rtn;
+  }
+  if (!method->IsFunction()) {
+    rtn.not_function = 1;
+    return rtn;
+  }
+  Local<Value> result;
+  if (!method.As<Function>()
+           ->Call(local_ctx, obj, argc, argv)
+           .ToLocal(&result)) {
+    rtn.result.error = ExceptionError(try_catch, iso, local_ctx);
+    return rtn;
+  }
+  m_value* val = new m_value;
+  val->id = 0;
+  val->iso = iso;
+  val->ctx = ctx;
+  val->ptr.Reset(iso, result);
+  rtn.result.value = tracked_value(ctx, val);
+  return rtn;
 }
 
 RtnValue FunctionCall(ValuePtr ptr, ValuePtr recv, int argc, ValuePtr args[]) {
@@ -1631,7 +1830,7 @@ RtnValue FunctionCall(ValuePtr ptr, ValuePtr recv, int argc, ValuePtr args[]) {
   rtnval->id = 0;
   rtnval->iso = iso;
   rtnval->ctx = ctx;
-  rtnval->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  rtnval->ptr.Reset(iso, result);
   rtn.value = tracked_value(ctx, rtnval);
   return rtn;
 }
@@ -1651,7 +1850,7 @@ RtnValue FunctionNewInstance(ValuePtr ptr, int argc, ValuePtr args[]) {
   rtnval->id = 0;
   rtnval->iso = iso;
   rtnval->ctx = ctx;
-  rtnval->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  rtnval->ptr.Reset(iso, result);
   rtn.value = tracked_value(ctx, rtnval);
   return rtn;
 }
@@ -1664,7 +1863,7 @@ ValuePtr FunctionSourceMapUrl(ValuePtr ptr) {
   rtnval->id = 0;
   rtnval->iso = iso;
   rtnval->ctx = ctx;
-  rtnval->ptr = Persistent<Value, CopyablePersistentTraits<Value>>(iso, result);
+  rtnval->ptr.Reset(iso, result);
   return tracked_value(ctx, rtnval);
 }
 

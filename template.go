@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"math/big"
 	"runtime"
-	"unsafe"
 )
 
 type template struct {
@@ -25,8 +24,11 @@ type template struct {
 // If the value passed is a Go supported primitive (string, int32, uint32, int64, uint64, float64, big.Int)
 // then a value will be created and set as the value property.
 func (t *template) Set(name string, val interface{}, attributes ...PropertyAttribute) error {
-	cname := C.CString(name)
-	defer C.free(unsafe.Pointer(cname))
+	name = legacyString(name)
+	cname, nameLen, err := borrowedString(name)
+	if err != nil {
+		return err
+	}
 
 	var attrs PropertyAttribute
 	for _, a := range attributes {
@@ -39,21 +41,22 @@ func (t *template) Set(name string, val interface{}, attributes ...PropertyAttri
 		if err != nil {
 			return fmt.Errorf("v8go: unable to create new value: %v", err)
 		}
-		C.TemplateSetValue(t.ptr, cname, newVal.ptr, C.int(attrs))
+		C.TemplateSetValue(t.ptr, cname, nameLen, newVal.ptr, C.int(attrs))
 	case *ObjectTemplate:
-		C.TemplateSetTemplate(t.ptr, cname, v.ptr, C.int(attrs))
+		C.TemplateSetTemplate(t.ptr, cname, nameLen, v.ptr, C.int(attrs))
 		runtime.KeepAlive(v)
 	case *FunctionTemplate:
-		C.TemplateSetTemplate(t.ptr, cname, v.ptr, C.int(attrs))
+		C.TemplateSetTemplate(t.ptr, cname, nameLen, v.ptr, C.int(attrs))
 		runtime.KeepAlive(v)
 	case *Value:
 		if v.IsObject() || v.IsExternal() {
 			return errors.New("v8go: unsupported property: value type must be a primitive or use a template")
 		}
-		C.TemplateSetValue(t.ptr, cname, v.ptr, C.int(attrs))
+		C.TemplateSetValue(t.ptr, cname, nameLen, v.ptr, C.int(attrs))
 	default:
 		return fmt.Errorf("v8go: unsupported property type `%T`, must be one of string, int32, uint32, int64, uint64, float64, *big.Int, *v8go.Value, *v8go.ObjectTemplate or *v8go.FunctionTemplate", v)
 	}
+	runtime.KeepAlive(name)
 	runtime.KeepAlive(t)
 
 	return nil

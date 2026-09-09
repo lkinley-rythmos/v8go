@@ -17,6 +17,11 @@ func (i *Isolate) GetCallback(ref int) FunctionCallback {
 // GetContext is exported for testing only.
 var GetContext = getContext
 
+// InternalRetainedValueCount is exported for testing only.
+func (i *Isolate) InternalRetainedValueCount() int {
+	return i.internalRetainedValueCount()
+}
+
 // Ref is exported for testing only.
 func (c *Context) Ref() int {
 	return c.ref

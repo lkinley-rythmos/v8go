@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"runtime"
 	"unsafe"
 )
 
@@ -71,9 +72,12 @@ func NewValue(iso *Isolate, val interface{}) (*Value, error) {
 
 	switch v := val.(type) {
 	case string:
-		cstr := C.CString(v)
-		defer C.free(unsafe.Pointer(cstr))
-		rtn := C.NewValueString(iso.ptr, cstr, C.int(len(v)))
+		cstr, length, err := borrowedString(v)
+		if err != nil {
+			return nil, err
+		}
+		rtn := C.NewValueString(iso.ptr, cstr, length)
+		runtime.KeepAlive(v)
 		return valueResult(nil, rtn)
 	case int32:
 		rtnVal = &Value{
