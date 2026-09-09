@@ -2,46 +2,24 @@ name: CI
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
-jobs:
-  test:
-    name: Tests on ${{ matrix.go-version }} ${{ matrix.platform }}
-    strategy:
-      matrix:
-        go-version: [1.18.10, 1.19.5]
-        platform: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.platform }}
+permissions:
+  contents: read
 
+jobs:
+  scripts:
+    runs-on: ubuntu-24.04
     steps:
-    - name: Install Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: ${{ matrix.go-version }}
-    - name: Checkout
-      uses: actions/checkout@v2
-    - name: Go Test
-      env:
-        CGO_CXXFLAGS: "-Werror"
-      run: go test -v -coverprofile c.out ./...
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
-      env:
-        OS: ${{ matrix.platform }}
-        GO: ${{ matrix.go-version }}
-      with:
-        files: ./c.out
-        env_vars: OS,GO
-    - name: Add GOPATH to GITHUB_ENV
-      run: echo "GOPATH=$(go env GOPATH)" >>"$GITHUB_ENV"
-    - name: Scan and upload FOSSA data (Linux/Mac)
-      if: env.FOSSA_API_KEY != '' && github.ref == 'refs/heads/master'
-      run: |
-        curl -H 'Cache-Control: no-cache' https://raw.githubusercontent.com/fossas/fossa-cli/master/install.sh | sudo bash
-        fossa analyze
-      env:
-        FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
-        
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - run: python3 -m unittest discover -s deps -p 'test_*.py'
+      - run: test -z "$(gofmt -l *.go deps/include/*/vendor.go deps/include/vendor.go)"
+      - run: sh -n deps/v8_compile.sh
+
+  native:
+    uses: ./.github/workflows/native.yml

@@ -3,6 +3,6 @@
 package include
 
 import (
-	_ "rogchap.com/v8go/deps/include/cppgc"
-  _ "rogchap.com/v8go/deps/include/libplatform"
+	_ "github.com/lkinley-rythmos/v8go/deps/include/cppgc"
+	_ "github.com/lkinley-rythmos/v8go/deps/include/libplatform"
 )

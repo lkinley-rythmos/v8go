@@ -5,18 +5,27 @@
 package v8go_test
 
 import (
+	"os"
 	"regexp"
+	"strings"
 	"testing"
 
-	v8 "rogchap.com/v8go"
+	v8 "github.com/lkinley-rythmos/v8go"
 )
 
 func TestVersion(t *testing.T) {
 	t.Parallel()
-	rgx := regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+-v8go$`)
+	rgx := regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+$`)
 	v := v8.Version()
 	if !rgx.MatchString(v) {
 		t.Errorf("version string is in the incorrect format: %s", v)
+	}
+	expected, err := os.ReadFile("deps/VERSION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != strings.TrimSpace(string(expected)) {
+		t.Fatalf("linked V8 %s does not match deps/VERSION %s", v, expected)
 	}
 }
 

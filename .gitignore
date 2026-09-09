@@ -2,11 +2,16 @@
 .DS_Store
 
 .build
+.ccache/
 .cipd
 .gclient_entries
+.gcs_entries
+gn-args*.txt
 
 deps/darwin-x86_64/libv8_debug.a
 deps/.gclient_previous*
 c.out
 .idea/*
 /v8go.test
+/deps/*/libv8.a
+__pycache__/

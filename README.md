@@ -1,20 +1,22 @@
 # Execute JavaScript from Go
 
-<a href="https://github.com/rogchap/v8go/releases"><img src="https://img.shields.io/github/v/release/rogchap/v8go" alt="Github release"></a>
-[![Go Report Card](https://goreportcard.com/badge/rogchap.com/v8go)](https://goreportcard.com/report/rogchap.com/v8go)
-[![Go Reference](https://pkg.go.dev/badge/rogchap.com/v8go.svg)](https://pkg.go.dev/rogchap.com/v8go)
-[![CI](https://github.com/rogchap/v8go/workflows/CI/badge.svg)](https://github.com/rogchap/v8go/actions?query=workflow%3ACI)
-![V8 Build](https://github.com/rogchap/v8go/workflows/V8%20Build/badge.svg)
-[![codecov](https://codecov.io/gh/rogchap/v8go/branch/master/graph/badge.svg?token=VHZwzGm3dV)](https://codecov.io/gh/rogchap/v8go)
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git.svg?type=shield)](https://app.fossa.com/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git?ref=badge_shield)
-[![#v8go Slack Channel](https://img.shields.io/badge/slack-%23v8go-4A154B?logo=slack)](https://gophers.slack.com/channels/v8go)
+A fork of [rogchap/v8go](https://github.com/rogchap/v8go), preparing
+**v0.10.0-rc.1** with **V8 15.2.124.21**.
+
+[![CI](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml/badge.svg)](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/lkinley-rythmos/v8go.svg)](https://pkg.go.dev/github.com/lkinley-rythmos/v8go)
+
+This candidate supports **Linux amd64 and arm64 (glibc)**. Install the matching
+native release package and source its build environment before using the Go
+module. See [installation and release instructions](RELEASING.md).
+The RC is being prepared; release-download commands work after publication.
 
 <img src="gopher.jpg" width="200px" alt="V8 Gopher based on original artwork from the amazing Renee French" />
 
 ## Usage
 
 ```go
-import v8 "rogchap.com/v8go"
+import v8 "github.com/lkinley-rythmos/v8go"
 ```
 
 ### Running a script
@@ -183,7 +185,7 @@ func printTree(nest string, node *v8.CPUProfileNode) {
 
 ## Documentation
 
-Go Reference & more examples: https://pkg.go.dev/rogchap.com/v8go
+Go Reference & more examples: https://pkg.go.dev/github.com/lkinley-rythmos/v8go
 
 ### Support
 
@@ -202,12 +204,13 @@ variable.
 
 ## V8 dependency
 
-V8 version: **9.0.257.18** (April 2021)
+V8 version: **15.2.124.21**.
 
-In order to make `v8go` usable as a standard Go package, prebuilt static libraries of V8
-are included for Linux and macOS. you *should not* require to build V8 yourself.
-
-Due to security concerns of binary blobs hiding malicious code, the V8 binary is built via CI *ONLY*.
+Native dependencies are distributed as per-architecture release assets. They
+include the V8 library, its Rust and C++ runtimes, matching C++ headers and
+license notices. `go get` does not download these assets automatically; use
+the [native installer](RELEASING.md#using-a-published-release). Building V8
+from source is only necessary when changing the engine or its configuration.
 
 ## Project Goals
 
@@ -221,33 +224,19 @@ This project also aims to keep up-to-date with the latest (stable) release of V8
 
 ## License
 
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git.svg?type=large)](https://app.fossa.com/projects/custom%2B22862%2Fgit%40github.com%3Arogchap%2Fv8go.git?ref=badge_large)
+v8go retains its [BSD-style license](LICENSE). Native packages include V8 and
+third-party license notices in their `licenses/` directory.
 
 ## Development
 
-### Recompile V8 with debug info and debug checks
+### Building and upgrading V8
 
-[Aside from data races, Go should be memory-safe](https://research.swtch.com/gorace) and v8go should preserve this property by adding the necessary checks to return an error or panic on these unsupported code paths. Release builds of v8go don't include debugging information for the V8 library since it significantly adds to the binary size, slows down compilation and shouldn't be needed by users of v8go. However, if a v8go bug causes a crash (e.g. during new feature development) then it can be helpful to build V8 with debugging information to get a C++ backtrace with line numbers. The following steps will not only do that, but also enable V8 debug checking, which can help with catching misuse of the V8 API.
+See [RELEASING.md](RELEASING.md) for pinned toolchains, package generation,
+consumer setup, and the release workflow. Engine and wrapper releases are
+versioned separately. Update headers, native dependencies, and tests together.
 
-1) Make sure to clone the projects submodules (ie. the V8's `depot_tools` project): `git submodule update --init --recursive`
-1) Build the V8 binary for your OS: `deps/build.py --debug`. V8 is a large project, and building the binary can take up to 30 minutes.
-1) Build the executable to debug, using `go build` for commands or `go test -c` for tests. You may need to add the `-ldflags=-compressdwarf=false` option to disable debug information compression so this information can be read by the debugger (e.g. lldb that comes with Xcode v12.5.1, the latest Xcode released at the time of writing)
-1) Run the executable with a debugger (e.g. `lldb -- ./v8go.test -test.run TestThatIsCrashing`, `run` to start execution then use `bt` to print a bracktrace after it breaks on a crash), since backtraces printed by Go or V8 don't currently include line number information.
-
-### Upgrading the V8 binaries
-
-We have the [upgradev8](https://github.com/rogchap/v8go/.github/workflow/v8upgrade.yml) workflow.
-The workflow is triggered every day or manually.
-
-If the current [v8_version](https://github.com/rogchap/v8go/deps/v8_version) is different from the latest stable version, the workflow takes care of fetching the latest stable v8 files and copying them into `deps/include`. The last step of the workflow opens a new PR with the branch name `v8_upgrade/<v8-version>` with all the changes.
-
-The next steps are:
-
-1) The build is not yet triggered automatically. To trigger it manually, go to the [V8
-Build](https://github.com/rogchap/v8go/actions?query=workflow%3A%22V8+Build%22) Github Action, Select "Run workflow",
-and select your pushed branch eg. `v8_upgrade/<v8-version>`.
-1) Once built, this should open 3 PRs against your branch to add the `libv8.a` for Linux (for x86_64) and macOS for x86_64 and arm64; merge
-these PRs into your branch. You are now ready to raise the PR against `master` with the latest version of V8.
+For a debug engine, adjust `deps/args/linux.gn` before rebuilding and generate
+a separate native package. Preserve the sandbox and matching libc++ settings.
 
 ### Flushing after C/C++ standard library printing for debugging
 
@@ -264,42 +253,11 @@ Not relying on the flushing at exit can also help ensure the output is printed b
 
 ### Local leak checking
 
-Leak checking is automatically done in CI, but it can be useful to do locally to debug leaks.
+After installing the native package and sourcing its `env.sh`, run:
 
-Leak checking is done using the [Leak Sanitizer](https://clang.llvm.org/docs/LeakSanitizer.html) which
-is a part of LLVM. As such, compiling with clang as the C/C++ compiler seems to produce more complete
-backtraces (unfortunately still only of the system stack at the time of writing).
-
-For instance, on a Debian-based Linux system, you can use `sudo apt-get install clang-12` to install a
-recent version of clang.  Then CC and CXX environment variables are needed to use that compiler. With
-that compiler, the tests can be run as follows
-
-```
-CC=clang-12 CXX=clang++-12 go test -c --tags leakcheck && ./v8go.test
+```sh
+go test -count=1 -tags leakcheck .
 ```
 
-The separate compile and link commands are currently needed to get line numbers in the backtrace.
-
-On macOS, leak checking isn't available with the version of clang that comes with Xcode, so a separate
-compiler installation is needed.  For example, with homebrew, `brew install llvm` will install a version
-of clang with support for this. The ASAN_OPTIONS environment variable will also be needed to run the code
-with leak checking enabled, since it isn't enabled by default on macOS. E.g. with the homebrew
-installation of llvm, the tests can be run with
-
-```
-CXX=/usr/local/opt/llvm/bin/clang++ CC=/usr/local/opt/llvm/bin/clang go test -c --tags leakcheck -ldflags=-compressdwarf=false
-ASAN_OPTIONS=detect_leaks=1 ./v8go.test
-```
-
-The `-ldflags=-compressdwarf=false` is currently (with clang 13) needed to get line numbers in the backtrace.
-
-### Formatting
-
-Go has `go fmt`, C has `clang-format`. Any changes to the `v8go.h|cc` should be formated with `clang-format` with the
-"Chromium" Coding style. This can be done easily by running the `go generate` command.
-
-`brew install clang-format` to install on macOS.
-
----
-
-V8 Gopher image based on original artwork from the amazing [Renee French](http://reneefrench.blogspot.com).
+This uses LLVM's LeakSanitizer. The consumer Dockerfile includes the sanitizer
+runtime. Native CI runs the same check for both Linux architectures.
