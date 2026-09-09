@@ -24,7 +24,7 @@ func TestCPUProfileNode(t *testing.T) {
 	title := "cpuprofilenodetest"
 	cpuProfiler.StartProfiling(title)
 
-	_, err := ctx.RunScript(profileScript, "script.js")
+	_, err := ctx.RunScript(profileNodeScript, "script.js")
 	fatalIf(t, err)
 	val, err := ctx.Global().Get("start")
 	fatalIf(t, err)
@@ -55,7 +55,7 @@ func TestCPUProfileNode(t *testing.T) {
 	if startNode == nil {
 		t.Fatal("expected node not to be nil")
 	}
-	checkNode(t, startNode, "script.js", "start", 23, 15)
+	checkNode(t, startNode, "script.js", "start", 9, 15)
 
 	parentName := startNode.GetParent().GetFunctionName()
 	if parentName != "(root)" {
@@ -63,35 +63,37 @@ func TestCPUProfileNode(t *testing.T) {
 	}
 
 	fooNode := findChild(t, startNode, "foo")
-	checkNode(t, fooNode, "script.js", "foo", 15, 13)
-
-	delayNode := findChild(t, fooNode, "delay")
-	checkNode(t, delayNode, "script.js", "delay", 12, 15)
+	checkNode(t, fooNode, "script.js", "foo", 8, 13)
 
 	barNode := findChild(t, fooNode, "bar")
-	checkNode(t, barNode, "script.js", "bar", 13, 13)
+	checkNode(t, barNode, "script.js", "bar", 7, 13)
+
+	bazNode := findChild(t, barNode, "baz")
+	checkNode(t, bazNode, "script.js", "baz", 6, 13)
+
+	delayNode := findChild(t, bazNode, "delay")
+	checkNode(t, delayNode, "script.js", "delay", 5, 15)
 
 	loopNode := findChild(t, delayNode, "loop")
 	checkNode(t, loopNode, "script.js", "loop", 1, 14)
-
-	bazNode := findChild(t, fooNode, "baz")
-	checkNode(t, bazNode, "script.js", "baz", 14, 13)
 }
 
 func findChild(t *testing.T, node *v8.CPUProfileNode, functionName string) *v8.CPUProfileNode {
 	t.Helper()
 
-	var child *v8.CPUProfileNode
-	count := node.GetChildrenCount()
-	for i := 0; i < count; i++ {
-		if node.GetChild(i).GetFunctionName() == functionName {
-			child = node.GetChild(i)
+	var names []string
+	for i := 0; i < node.GetChildrenCount(); i++ {
+		child := node.GetChild(i)
+		names = append(names, child.GetFunctionName())
+		if child.GetFunctionName() == functionName {
+			if child.GetParent() != node {
+				t.Fatalf("child %q has an incorrect parent", functionName)
+			}
+			return child
 		}
 	}
-	if child == nil {
-		t.Fatal("failed to find child node")
-	}
-	return child
+	t.Fatalf("expected child %q under %q; sampled children: %v", functionName, node.GetFunctionName(), names)
+	return nil
 }
 
 func checkNode(t *testing.T, node *v8.CPUProfileNode, scriptResourceName string, functionName string, line, column int) {
@@ -110,3 +112,16 @@ func checkNode(t *testing.T, node *v8.CPUProfileNode, scriptResourceName string,
 		t.Fatalf("expected node at column %d, but got %d", column, node.GetColumnNumber())
 	}
 }
+
+// Keep every inspected function on the stack throughout the workload. Separate
+// short branches may never be sampled when the profiler or JS thread is delayed.
+// Calling the chain once also avoids warming up and optimizing the wrapper calls.
+const profileNodeScript = `function loop(timeout) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {}
+}
+function delay(timeout) { loop(timeout); }
+function baz(timeout) { delay(timeout); }
+function bar(timeout) { baz(timeout); }
+function foo(timeout) { bar(timeout); }
+function start(timeout) { foo(timeout); }`
