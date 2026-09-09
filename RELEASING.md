@@ -1,9 +1,9 @@
 # Building and releasing this fork
 
 The module is `github.com/lkinley-rythmos/v8go`. `VERSION` records the v8go
-release candidate (`0.10.0-rc.1`); `deps/VERSION` records the embedded V8
+release candidate (`0.10.0-rc.2`); `deps/VERSION` records the embedded V8
 version (`15.2.124.21`). Update the engine pin, dependency pin, headers, and
-native packages together. The initial RC targets Linux amd64 and arm64 with
+native packages together. This RC targets Linux amd64 and arm64 with
 glibc and musl. macOS support requires matching builds and tests before it can return.
 
 ## Using a published release
@@ -16,13 +16,13 @@ and ensure the matching `ld.lld` is on PATH (typically `/usr/lib/llvm-22/bin`).
 From an application's Go module, after the RC has been published:
 
 ```sh
-go mod download github.com/lkinley-rythmos/v8go@v0.10.0-rc.1
-v8go_module=$(go env GOMODCACHE)/github.com/lkinley-rythmos/v8go@v0.10.0-rc.1
+go mod download github.com/lkinley-rythmos/v8go@v0.10.0-rc.2
+v8go_module=$(go env GOMODCACHE)/github.com/lkinley-rythmos/v8go@v0.10.0-rc.2
 python3 "$v8go_module/deps/native.py" install \
-  --release v0.10.0-rc.1 \
-  --prefix "$HOME/.local/share/v8go/v0.10.0-rc.1"
-. "$HOME/.local/share/v8go/v0.10.0-rc.1/env.sh"
-go get github.com/lkinley-rythmos/v8go@v0.10.0-rc.1
+  --release v0.10.0-rc.2 \
+  --prefix "$HOME/.local/share/v8go/v0.10.0-rc.2"
+. "$HOME/.local/share/v8go/v0.10.0-rc.2/env.sh"
+go get github.com/lkinley-rythmos/v8go@v0.10.0-rc.2
 go test ./...
 ```
 
@@ -112,8 +112,8 @@ Public V8 headers remain in the module for normal cgo compilation and vendoring.
 To test a local package, provide its archive and checksum explicitly:
 
 ```sh
-archive=.build/dist/v8go_v0.10.0-rc.1_linux_amd64.tar.gz
-python3 deps/native.py install --release v0.10.0-rc.1 \
+archive=.build/dist/v8go_v0.10.0-rc.2_linux_amd64.tar.gz
+python3 deps/native.py install --release v0.10.0-rc.2 \
   --platform linux_amd64 --archive "$archive" \
   --sha256 "$(cut -d ' ' -f 1 "$archive.sha256")" --prefix .build/sdk
 . .build/sdk/env.sh

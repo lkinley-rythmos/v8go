@@ -1,7 +1,7 @@
 # Execute JavaScript from Go
 
 A fork of [rogchap/v8go](https://github.com/rogchap/v8go), preparing
-**v0.10.0-rc.1** with **V8 15.2.124.21**.
+**v0.10.0-rc.2** with **V8 15.2.124.21**.
 
 [![CI](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml/badge.svg)](https://github.com/lkinley-rythmos/v8go/actions/workflows/test.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/lkinley-rythmos/v8go.svg)](https://pkg.go.dev/github.com/lkinley-rythmos/v8go)

@@ -4,7 +4,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.10.0-rc.1] - Unreleased
+## [v0.10.0-rc.2] - Unreleased
+
+### Added
+- Separate Linux musl packages for amd64 and arm64, with Alpine stable and edge
+  consumer validation and libc-aware package selection.
+- Ordered property batching and direct primitive setters.
+
+### Changed
+- Reduce Go/V8 boundary calls, temporary handles, and string copies.
+- Build ARM64 on native GitHub runners using host-native LLVM and Rust tools.
+- Move GitHub Actions to Node 24 runtimes.
+- Reuse exact native SDKs and pristine dependencies, preserve compiler caches
+  after failed builds, cache consumer images/Go builds, and test each platform
+  independently. Superseded PR runs are cancelled.
+
+### Fixed
+- Include the complete target Rust runtime in native packages.
+- Use musl-compatible allocator paths instead of glibc malloc/IFUNC facilities.
+
+## [v0.10.0-rc.1]
 
 ### Changed
 - Fork module path: `github.com/lkinley-rythmos/v8go`.
