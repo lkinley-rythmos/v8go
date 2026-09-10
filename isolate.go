@@ -20,7 +20,8 @@ var v8once sync.Once
 // garbage collector. Most applications will create one isolate
 // with many V8 contexts for execution.
 type Isolate struct {
-	ptr C.IsolatePtr
+	snapshotExports int
+	ptr             C.IsolatePtr
 
 	cbMutex sync.RWMutex
 	cbSeq   int
