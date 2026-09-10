@@ -4,7 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.10.0-rc.2] - Unreleased
+## [v0.10.0-rc.3] - Unreleased
+
+### Fixed
+- Preserve Go's default C++ optimization flags in the native SDK environment
+  when custom flags are unset or empty, correcting the JS→Go callback slowdown.
+- Retain explicit compiler flag overrides and test the generated environment.
+
+## [v0.10.0-rc.2] - 2026-09-09
 
 ### Added
 - Separate Linux musl packages for amd64 and arm64, with Alpine stable and edge
