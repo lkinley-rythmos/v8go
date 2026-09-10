@@ -1,4 +1,4 @@
-# v0.10.0-rc.2
+# v0.10.0-rc.3
 
 This candidate retains **V8 15.2.124.21** and the module path
 `github.com/lkinley-rythmos/v8go`.
@@ -8,19 +8,22 @@ validated on Alpine 3.24.1 and edge; macOS packages remain unavailable. The
 release workflow requires every native build and consumer test to pass before
 creating the draft release. This candidate is still being prepared.
 
-## Changes since rc.1
+## Changes since rc.2
 
-- Reduce Go/V8 boundary calls, temporary retained handles, and string copies.
-- Add ordered property batching and direct primitive setters.
-- Build ARM64 on native hardware with host-native LLVM/Rust/bindgen tools.
-- Add separate musl packages and automatic libc detection in the installer.
-- Include the full target Rust runtime, with Intl, Temporal, vendoring, and
-  leak checks in consumer tests. Musl uses its own malloc and the allocator's
-  existing fallback without IFUNC-based memory tagging.
-- Reuse exact SDK packages when native inputs are unchanged; cache pristine
-  dependencies and Rust tools; retain compiler caches after failed builds.
-- Cache consumer toolchains and Go compilation, start tests per platform,
-  cancel superseded PR runs, and upgrade Actions to Node 24 runtimes.
+- Restore Go's default `-O2 -g` when the native SDK installer generates
+  `CGO_CXXFLAGS` and the caller has not supplied flags. Explicit user flags are
+  preserved. Previously, sourcing `env.sh` compiled the C++ binding wrapper
+  without optimization by default.
+- In a controlled Linux amd64 comparison using the same rc.2 native SDK,
+  four-argument JS→Go callbacks improved from 4.01 µs to 1.59 µs (median of five
+  alternating one-second samples). Results depend on the workload and host.
+- Add regression coverage for unset, empty, and custom compiler flags.
+
+V8 and the binding API are unchanged. Install with the rc.3 module's installer
+into a fresh prefix, source its `env.sh` in a clean shell, and rebuild your
+application. A previously sourced SDK's flags are treated as explicit overrides. Existing
+rc.2 installations can append `-O2 -g` to `CGO_CXXFLAGS` after sourcing their
+environment and rebuild; the prebuilt V8 library needs no recompilation.
 
 ## Installation
 
