@@ -55,6 +55,27 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(self.prefix / 'lib'), result.stdout)
 
+    def test_environment_preserves_default_and_custom_cxx_flags(self):
+        result = self.install(self.make_archive())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for supplied, expected in ((None, ['-O2', '-g']),
+                                   ('', ['-O2', '-g']),
+                                   ('-O0 -g3', ['-O0', '-g3'])):
+            with self.subTest(supplied=supplied):
+                env = os.environ.copy()
+                env.pop('CGO_CXXFLAGS', None)
+                if supplied is not None:
+                    env['CGO_CXXFLAGS'] = supplied
+                result = subprocess.run(
+                    ['sh', '-c', '. "$1/env.sh"; printf "%s" "$CGO_CXXFLAGS"',
+                     'sh', str(self.prefix)], env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                flags = result.stdout.split()
+                self.assertEqual([flag for flag in flags
+                                  if flag.startswith(('-O', '-g'))], expected)
+                self.assertIn('-nostdinc++', flags)
+                self.assertIn('-isystem' + str(self.prefix / 'include/libcxx'), flags)
+
     def test_rejects_corrupt_download_before_installing(self):
         self.make_archive()
         result = self.install('0' * 64)
