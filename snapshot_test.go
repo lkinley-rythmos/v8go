@@ -149,6 +149,38 @@ func TestSnapshotEnvelope(t *testing.T) {
 	}
 }
 
+func TestSnapshotRejectsGlobalInternalFields(t *testing.T) {
+	blob, err := CreateSnapshot(snapshotTestSource, []string{"library"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iso, err := NewIsolateWithSnapshot(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer iso.Dispose()
+	global := NewObjectTemplate(iso)
+	global.SetInternalFieldCount(1)
+	ctxMutex.RLock()
+	before := len(ctxRegistry)
+	ctxMutex.RUnlock()
+
+	ctx, err := NewContextFromSnapshot(iso, global)
+	if ctx != nil {
+		defer ctx.Close()
+		t.Error("template with internal fields returned a context")
+	}
+	if !errors.Is(err, ErrSnapshot) {
+		t.Errorf("template with internal fields: got %v, want ErrSnapshot", err)
+	}
+	ctxMutex.RLock()
+	after := len(ctxRegistry)
+	ctxMutex.RUnlock()
+	if after != before {
+		t.Errorf("rejected template changed context registry size: got %d, want %d", after, before)
+	}
+}
+
 func TestSnapshotAPIGuards(t *testing.T) {
 	blob, err := CreateSnapshot(snapshotTestSource, []string{"library"})
 	if err != nil {

@@ -165,6 +165,7 @@ func NewIsolateWithSnapshot(blob []byte) (*Isolate, error) {
 
 // NewContextFromSnapshot restores an independent library context and instantiates
 // the supplied global template in that context, including fresh Go callbacks.
+// Global templates with nonzero internal field counts are unsupported.
 // Close the returned context before disposing its isolate.
 func NewContextFromSnapshot(iso *Isolate, global *ObjectTemplate) (*Context, error) {
 	if iso == nil || iso.ptr == nil || iso.snapshotExports == 0 {
@@ -174,6 +175,9 @@ func NewContextFromSnapshot(iso *Isolate, global *ObjectTemplate) (*Context, err
 	if global != nil {
 		if global.template == nil || global.ptr == nil || global.iso != iso {
 			return nil, fmt.Errorf("%w: invalid global template or different isolate", ErrSnapshot)
+		}
+		if global.InternalFieldCount() != 0 {
+			return nil, fmt.Errorf("%w: global template internal fields are unsupported", ErrSnapshot)
 		}
 		templatePtr = global.ptr
 	}

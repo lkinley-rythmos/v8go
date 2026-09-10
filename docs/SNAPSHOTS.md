@@ -19,9 +19,12 @@ binary or a persistent request context.
    to load it. The isolate copies and owns the native bytes until `Dispose`, so
    the caller may release or reuse the input slice after the call returns.
 4. Call `NewContextFromSnapshot(iso, global)` for each independent realm. The
-   optional global object template must belong to that isolate. Its properties
-   and Go callbacks are instantiated in the restored realm, with rc.3 builtin
-   collision precedence, descriptors, and property ordering preserved.
+   optional global object template must belong to that isolate and have zero
+   internal fields. Templates with a nonzero `InternalFieldCount` are rejected
+   with `ErrSnapshot` before a context is created or registered. Supported
+   template properties and Go callbacks are instantiated in the restored realm,
+   with rc.3 builtin collision precedence, descriptors, and property ordering
+   preserved.
 5. Call `ctx.SnapshotData(index)` once for each desired export, using the
    zero-based order passed to `CreateSnapshot`. Bind or use the returned value
    in that context. Repeated retrieval of an index is an error.
