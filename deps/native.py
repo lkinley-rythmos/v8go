@@ -143,6 +143,8 @@ def environment(prefix, target='linux_amd64'):
     # generating flags whose meaning changes at the second parsing boundary.
     if any(c.isspace() for c in str(prefix)):
         raise ValueError('installation prefix must not contain whitespace')
+    # Setting CGO_CXXFLAGS replaces Go's -O2 -g defaults. Preserve them when
+    # the caller has not supplied flags; explicit flags remain authoritative.
     cxx = (f'-nostdinc++ -isystem{prefix}/include/libcxx '
            f'-isystem{prefix}/include/libcxxabi -I{prefix}/include/libcxx-config '
            '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE '
@@ -152,7 +154,7 @@ def environment(prefix, target='linux_amd64'):
     return ('# Source this file before building a v8go application.\n'
             'export CC="${CC:-clang-22}"\n'
             'export CXX="${CXX:-clang++-22}"\n'
-            f'export CGO_CXXFLAGS={shlex.quote(cxx)}" ${{CGO_CXXFLAGS:-}}"\n'
+            f'export CGO_CXXFLAGS={shlex.quote(cxx)}" ${{CGO_CXXFLAGS:--O2 -g}}"\n'
             f'export CGO_LDFLAGS={shlex.quote(f"-L{prefix}/lib -fuse-ld=lld")}" ${{CGO_LDFLAGS:-}}"\n'
             'export CGO_ENABLED=1\n')
 

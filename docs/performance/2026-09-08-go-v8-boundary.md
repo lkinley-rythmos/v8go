@@ -110,3 +110,37 @@ provide the direct evidence that the lifetime-long temporary roots were removed.
 ## Validation limits
 
 Native arm64 validation remains for the repository's existing native CI runner. At the time of these local measurements, no remote workflow had been dispatched. The sandbox denied worktree creation, so implementation and measurements used the original feature checkout. Timings measure the combined implementation; they do not isolate the contribution of every individual change.
+
+## SDK compiler flag regression (2026-09-09)
+
+The SDK installer introduced in rc.1 set `CGO_CXXFLAGS` without an optimization
+flag. This overrides Go's default `-O2 -g`, so consumers sourcing the generated
+`env.sh` compiled the C++ binding wrapper without optimization unless they
+explicitly supplied it. The prebuilt V8 library was unaffected. The comparisons
+above used this same unoptimized wrapper configuration on both sides; they do
+not establish performance relative to older releases using Go's defaults.
+
+An isolated rc.2 comparison on the same Intel Core i7-9750H host used the published
+Linux amd64 glibc SDK, the same Go/compiler versions and benchmark source, and
+five alternating one-second samples per configuration. For the four-argument
+JS→Go callback, median latency was **4,013 ns with the generated environment**
+and **1,592 ns with `-O2 -g` restored** (2.52× faster). Both configurations retained
+zero callback handles. Raw samples are in ignored
+`.build/callback-regression/rc2.txt` and `rc2-o2.txt`. This isolates the flag issue;
+it is not a direct comparison against the user's unspecified older release.
+
+The installer now supplies `-O2 -g` when `CGO_CXXFLAGS` is unset or empty and
+preserves explicitly supplied flags such as `-O0 -g3`. Existing rc.2 consumers
+can use the following after sourcing their current SDK environment and before
+rebuilding their application (it enables optimization even if earlier flags
+selected a different level):
+
+```sh
+export CGO_CXXFLAGS="$CGO_CXXFLAGS -O2 -g"
+go build ./...
+```
+
+No V8 rebuild or replacement native archive is needed. A regenerated environment
+requires running the corrected installer into a fresh prefix and sourcing its
+`env.sh`; the installer rejects existing prefixes. Changing the installer alone
+does not update already generated `env.sh` files.
