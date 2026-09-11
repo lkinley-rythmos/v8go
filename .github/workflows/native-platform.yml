@@ -15,6 +15,10 @@ on:
       libc:
         required: true
         type: string
+      extended-arm64-checks:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -128,6 +132,21 @@ jobs:
           TARGET_PLATFORM: ${{ inputs.platform }}
           V8_BUILD_INPUT_KEY: ${{ needs.build.outputs.sdk-key }}
         run: bash deps/test-native-package.sh
+      - name: Qualify native ARM64 races and stack recovery
+        if: ${{ inputs.extended-arm64-checks }}
+        run: |
+          test "$(uname -m)" = aarch64
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,src=$PWD,dst=/workspace" \
+            -e GOCACHE=/workspace/.build/go-cache \
+            -e GOMODCACHE=/workspace/.build/go-mod \
+            v8go-consumer sh -ec '
+              test "$(uname -m)" = aarch64
+              . .build/sdk/env.sh
+              go test -race -count=1 ./...
+              go vet ./...
+              go test -race -count=100 ./internal/nativestack
+            '
       - name: Save consumer Go caches
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         uses: actions/cache/save@v5

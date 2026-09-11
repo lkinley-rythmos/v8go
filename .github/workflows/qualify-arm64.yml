@@ -1,0 +1,31 @@
+name: ARM64 snapshot and native-stack qualification
+
+on:
+  push:
+    branches: [qualification/native-arm64-snapshots-20260911]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arm64-qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux_arm64
+            libc: glibc
+          - platform: linux_musl_arm64
+            libc: musl
+    uses: ./.github/workflows/native-platform.yml
+    with:
+      arch: arm64
+      runner: ubuntu-24.04-arm
+      platform: ${{ matrix.platform }}
+      libc: ${{ matrix.libc }}
+      extended-arm64-checks: true
