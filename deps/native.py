@@ -149,13 +149,17 @@ def environment(prefix, target='linux_amd64'):
            f'-isystem{prefix}/include/libcxxabi -I{prefix}/include/libcxx-config '
            '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE '
            '-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS')
+    stack = ''
     if target.startswith('linux_musl_'):
         cxx += ' -DV8GO_USE_MUSL'
+        # musl uses PT_GNU_STACK for default pthread capacity. V8 recursion and
+        # Go callbacks need glibc-sized native stacks; keep this after user flags.
+        stack = ' -Wl,-z,stack-size=8388608'
     return ('# Source this file before building a v8go application.\n'
             'export CC="${CC:-clang-22}"\n'
             'export CXX="${CXX:-clang++-22}"\n'
             f'export CGO_CXXFLAGS={shlex.quote(cxx)}" ${{CGO_CXXFLAGS:--O2 -g}}"\n'
-            f'export CGO_LDFLAGS={shlex.quote(f"-L{prefix}/lib -fuse-ld=lld")}" ${{CGO_LDFLAGS:-}}"\n'
+            f'export CGO_LDFLAGS={shlex.quote(f"-L{prefix}/lib -fuse-ld=lld")}" ${{CGO_LDFLAGS:-}}{stack}"\n'
             'export CGO_ENABLED=1\n')
 
 

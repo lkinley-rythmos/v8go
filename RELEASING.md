@@ -63,6 +63,30 @@ still dynamically link musl; fully static binaries and older Alpine releases
 are not part of this validation. `deps/Dockerfile.test-musl` supplies the CI
 consumer environment, including the sanitizer package for leak checks.
 
+The generated musl environment appends `-Wl,-z,stack-size=8388608` after
+preserved user `CGO_LDFLAGS`. This sets the executable's `PT_GNU_STACK` size
+to 8 MiB, matching the observed glibc default and leaving native stack
+headroom for V8 recursion and Go callbacks that re-enter JavaScript. Go's
+cgo-created threads use the default pthread attributes; musl's smaller
+default can otherwise exhaust the native stack before V8 reports a
+JavaScript `RangeError`. The JavaScript stack budget is unchanged.
+
+This setting covers default threads in supported dynamically linked musl Go
+executables. Arbitrary custom pthread stacks and builds that override the
+final linker setting are not guaranteed. Existing SDK installations and
+already built executables are unchanged: generate a fresh SDK environment
+with the corrected installer, source it in a clean shell, and rebuild the
+application. glibc environment output is unchanged.
+
+The native regression gate reserves the initial process thread and checks
+capacity on multiple simultaneously locked cgo-created pthreads before
+running ordinary scripts, unbound scripts, and
+Go callbacks that re-enter recursive JavaScript. Each path must return a
+typed `JSError` containing `RangeError` and allow subsequent evaluation.
+Native amd64 musl and glibc qualification does not replace the remaining
+native ARM64 and Alpine edge runtime gates; all release matrix targets
+must pass before publication.
+
 ### Building musl packages
 
 The Linux composite action takes `target-libc: musl`. It installs native LLVM 23,
