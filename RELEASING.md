@@ -70,6 +70,9 @@ headroom for V8 recursion and Go callbacks that re-enter JavaScript. Go's
 cgo-created threads use the default pthread attributes; musl's smaller
 default can otherwise exhaust the native stack before V8 reports a
 JavaScript `RangeError`. The JavaScript stack budget is unchanged.
+The default pthread stack reservation applies process-wide, including
+threads that do not execute V8; reserved virtual address space is not
+equivalent to resident memory (RSS).
 
 This setting covers default threads in supported dynamically linked musl Go
 executables. Arbitrary custom pthread stacks and builds that override the
@@ -87,6 +90,22 @@ Native amd64 musl and glibc qualification does not replace the remaining
 native ARM64 and Alpine edge runtime gates; all release matrix targets
 must pass before publication.
 
+The musl native source patch also treats the initial Linux process thread's
+reserved lower stack bound as unavailable. musl reports that growable
+stack's initial mapping, which is not a valid permanent lower bound. V8
+then uses its existing central-stack view and safety margin; JavaScript
+stack limits and `IsOnCentralStack` checks remain enabled. Fixed pthread
+stacks and glibc retain their existing reserved-bound behavior. The release
+consumer gate locks the initial thread, primes exception handling at shallow
+depth, and requires 100 recursive `RangeError` results with recovery, both
+with module replacement and with vendoring.
+
+This native correction requires rebuilding the musl archive and relinking
+consumers; re-sourcing an environment alone cannot change existing native
+code. Previously published RC archives are unchanged. Locally modified
+archives must carry distinct candidate provenance and must not be relabeled
+as those published bytes.
+
 ### Building musl packages
 
 The Linux composite action takes `target-libc: musl`. It installs native LLVM 23,
@@ -100,6 +119,9 @@ patch in `deps/patches/linux-musl.patch`. Review and regenerate this patch when
 upgrading V8; an unexpected source revision fails the build instead of silently
 applying a partial patch. It is safe to rerun against an already patched tree.
 The patch leaves glibc behavior as the default.
+An existing checkout with an older version of the musl patch must be restored
+to the pinned inputs before applying an expanded patch; mixed before/after
+source hashes are rejected.
 
 Musl outputs are `deps/v8/out/release-musl` and
 `deps/v8/out/release-arm64-musl`. Package them with `native.py package --platform

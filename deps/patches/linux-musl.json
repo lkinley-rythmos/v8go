@@ -1,4 +1,8 @@
 {
+  "src/base/platform/platform.cc": {
+    "before": "d6582bb848fcf3d72384e10ab507ccc848c97b187fbb5e762653bc42f6f15418",
+    "after": "a2be7f9950a55f7c1fcd0150bfdbf39d525004a6afcc0cbaa65c62305546247a"
+  },
   "build/config/BUILDCONFIG.gn": {
     "before": "4d6c39685c8c8ae6529211a9c770890015c858bad35d8b8ce4f3437ecdbcb66f",
     "after": "8c8f5262386521b2d49a6a01d485fa310e4a61167faae82c44426df178f918b4"
