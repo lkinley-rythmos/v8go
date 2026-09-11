@@ -172,6 +172,15 @@ go test -count=1 -tags leakcheck .
 
 ## Release sequence
 
+The ARM64 snapshot/native-stack qualification branch refreshes the exact LLVM
+23.1.2 package pin to the September 10 build because the September 8 build is
+no longer fully available through the configured APT repository. Signed APT
+verification and exact-version installation remain enabled. This changes the
+compiler build and native SDK cache identity, not the V8 source pin. Earlier
+amd64 results do not qualify this new compiler: rerun amd64 qualification with
+the refreshed toolchain before release. Candidate CI packages are not published
+rc.3 release assets.
+
 1. Push the preparation branch and review its PR against this fork's `master`.
 2. Require the CI native builds, full binding tests, and leak checks on both
    Linux architectures to pass. The workflow uses native ARM64 runners.
