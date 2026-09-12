@@ -19,6 +19,10 @@ on:
         required: false
         type: boolean
         default: false
+      extended-amd64-checks:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -146,6 +150,21 @@ jobs:
             -e GOMODCACHE=/workspace/.build/go-mod \
             v8go-consumer sh -ec '
               test "$(uname -m)" = aarch64
+              . .build/sdk/env.sh
+              go test -race -count=1 ./...
+              go vet ./...
+              go test -race -count=100 ./internal/nativestack
+            '
+      - name: Qualify native AMD64 races and stack recovery
+        if: ${{ inputs.extended-amd64-checks }}
+        run: |
+          test "$(uname -m)" = x86_64
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,src=$PWD,dst=/workspace" \
+            -e GOCACHE=/workspace/.build/go-cache \
+            -e GOMODCACHE=/workspace/.build/go-mod \
+            v8go-consumer sh -ec '
+              test "$(uname -m)" = x86_64
               . .build/sdk/env.sh
               go test -race -count=1 ./...
               go vet ./...
