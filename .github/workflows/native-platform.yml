@@ -112,10 +112,14 @@ jobs:
         with:
           path: .build/docker-cache
           key: ${{ steps.image-cache.outputs.cache-primary-key }}
-      - name: Identify consumer compiler versions
+      - name: Verify and identify consumer toolchain
         id: consumer-key
+        shell: bash
         run: |
-          fingerprint=$(docker run --rm v8go-consumer sh -ec 'go version; clang-22 --version; ldd --version 2>&1 || true' | sha256sum | cut -d ' ' -f 1)
+          docker run --rm \
+            --mount "type=bind,src=$PWD/deps/test-consumer-toolchain.sh,dst=/test-consumer-toolchain.sh,readonly" \
+            v8go-consumer sh /test-consumer-toolchain.sh | tee .build/consumer-toolchain.txt
+          fingerprint=$(sha256sum .build/consumer-toolchain.txt | cut -d ' ' -f 1)
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Restore consumer Go caches
         id: go-cache
