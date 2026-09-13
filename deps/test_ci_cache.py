@@ -18,7 +18,8 @@ class CacheFingerprintTests(unittest.TestCase):
                      'deps/Dockerfile.musl-sysroot', 'deps/apply_musl_patch.py',
                      'deps/check_musl_commands.py', 'deps/args/linux.gn',
                      'deps/patches/linux-musl.patch', 'deps/include/v8.h',
-                     '.github/actions/build-linux/action.yml', 'deps/ci_cache.py'):
+                     '.github/actions/build-linux/action.yml', 'deps/ci_cache.py',
+                     'deps/source_provenance.py', 'deps/source-provenance.json'):
             p = self.root / name
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text('initial')
