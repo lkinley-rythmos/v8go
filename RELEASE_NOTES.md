@@ -1,40 +1,29 @@
-# v0.10.0-rc.3
+# v0.10.0-rc.4
 
-This candidate retains **V8 15.2.124.21** and the module path
-`github.com/lkinley-rythmos/v8go`.
+This prerelease retains **V8 15.2.124.21** and the module path
+`github.com/lkinley-rythmos/v8go`. It targets **Linux amd64 and arm64 with
+glibc or musl**; macOS packages are unavailable.
 
-It targets **Linux amd64 and arm64 with glibc or musl**. Musl packages are
-validated on Alpine 3.24.1 and edge; macOS packages remain unavailable. The
-release workflow requires every native build and consumer test to pass before
-creating the draft release. This candidate is still being prepared.
+## Changes since rc.3
 
-## Changes since rc.2
+- Add trusted library snapshots. A snapshot artifact restores independent
+  library objects and closure state into each context, while ordinary contexts
+  remain clean.
+- Reject snapshot global templates with internal fields before context creation.
+- Size the default musl pthread stack reservation at 8 MiB for supported SDK
+  consumers, and correct V8's lower stack-bound handling for the initial,
+  growable Linux musl thread.
 
-- Restore Go's default `-O2 -g` when the native SDK installer generates
-  `CGO_CXXFLAGS` and the caller has not supplied flags. Explicit user flags are
-  preserved. Previously, sourcing `env.sh` compiled the C++ binding wrapper
-  without optimization by default.
-- In a controlled Linux amd64 comparison using the same rc.2 native SDK,
-  four-argument JS→Go callbacks improved from 4.01 µs to 1.59 µs (median of five
-  alternating one-second samples). Results depend on the workload and host.
-- Add regression coverage for unset, empty, and custom compiler flags.
+Library snapshots are for trusted local artifacts from trusted producers only.
+Checksums detect corruption but do not authenticate a producer or make an
+attacker-controlled snapshot safe. Rebuild snapshots when the library source,
+runtime, V8 flags, platform, or compatible CPU changes.
 
-V8 and the binding API are unchanged. Install with the rc.3 module's installer
-into a fresh prefix, source its `env.sh` in a clean shell, and rebuild your
-application. A previously sourced SDK's flags are treated as explicit overrides. Existing
-rc.2 installations can append `-O2 -g` to `CGO_CXXFLAGS` after sourcing their
-environment and rebuild; the prebuilt V8 library needs no recompilation.
+Install the rc.4 native package into a fresh prefix, source its `env.sh` in a
+clean shell, and rebuild the application. `go get` alone does not install native
+dependencies. See [installation instructions](RELEASING.md#using-a-published-release).
 
-## Installation
-
-Native dependencies are separate release assets. Install the package for your
-architecture and libc, then source its `env.sh` before building Go applications.
-`go get` alone does not install native dependencies. See
-[installation instructions](RELEASING.md#using-a-published-release).
-
-Packages contain V8 and its Rust dependencies, matching libc++/libc++abi and
-headers, build provenance, and license notices. Each archive has a SHA-256
-checksum. Consumers use Go 1.25 or newer and Clang/LLD 22; Alpine tests use the
-distribution's Go toolchain. No V8 checkout is needed to use a package.
-
-This is a prerelease for compatibility testing, not a stable release.
+Native packages are separate assets for the matching architecture and libc.
+Each archive includes matching runtimes and headers, build provenance, license
+notices, and a SHA-256 checksum. This is a prerelease for compatibility testing,
+not a stable release.
