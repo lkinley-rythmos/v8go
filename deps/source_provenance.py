@@ -121,6 +121,15 @@ def _status(repository):
             yield entry[:2].decode(), entry[3:].decode()
 
 
+def _verified_nested_boundary(repository, relative, repositories):
+    """Whether an untracked status record is exactly a selected child checkout."""
+    candidate = Path(relative)
+    if candidate.is_absolute() or '..' in candidate.parts:
+        return False
+    child = (repository / candidate).resolve()
+    return child in repositories and child.parent == repository.resolve()
+
+
 def _gitlink(root, name):
     fields = _git(root, 'ls-files', '--stage', '--', name).split()
     if len(fields) < 2 or fields[0] != '160000' or not _is_revision(fields[1]):
@@ -157,6 +166,11 @@ def attest(root, platform):
     dirty = set()
     for repository in repositories:
         for status, relative in _status(repository):
+            if status == '??' and _verified_nested_boundary(repository, relative, repositories):
+                # gclient places selected child repositories in parents that do
+                # not track their directories. The child's own iteration below
+                # still verifies its revision and rejects any dirty contents.
+                continue
             absolute = repository / relative
             try:
                 name = str(absolute.resolve().relative_to(source.resolve()))
