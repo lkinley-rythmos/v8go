@@ -15,6 +15,8 @@ import tarfile
 import tempfile
 import urllib.request
 
+import source_provenance
+
 
 ROOT = Path(__file__).resolve().parent.parent
 PLATFORMS = {'linux_amd64': ('release', 'x64'),
@@ -70,6 +72,7 @@ def rust_archives(build, target):
 
 def package(args):
     v8 = ROOT / 'deps/v8'
+    provenance = source_provenance.attest(ROOT, args.platform)
     build_name, _ = PLATFORMS[args.platform]
     build = v8 / 'out' / build_name
     ar = Path(os.environ['V8_LLVM_AR']) if 'V8_LLVM_AR' in os.environ else (
@@ -125,6 +128,7 @@ def package(args):
             'v8_commit': subprocess.check_output(['git', '-C', str(v8), 'rev-parse', 'HEAD'], text=True).strip(),
             'v8go_commit': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
             'v8go_dirty': bool(subprocess.check_output(['git', '-C', str(ROOT), 'status', '--porcelain'])),
+            'source_provenance': provenance,
             'library_sha256': digest(library),
             'rust_archives': rust,
         }
@@ -208,6 +212,8 @@ def install(args):
             raise ValueError('archive release/platform does not match the requested installation')
         if manifest['v8'] != (ROOT / 'deps/VERSION').read_text().strip():
             raise ValueError('archive V8 version does not match this module')
+        source_provenance.validate_manifest_provenance(
+            manifest.get('source_provenance'), ROOT, args.platform)
         if not (stage / 'lib/libv8.a').is_file():
             raise ValueError('archive is missing lib/libv8.a')
         (stage / 'env.sh').write_text(env)

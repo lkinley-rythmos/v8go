@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 import native
+import source_provenance
 
 
 SCRIPT = Path(__file__).with_name('native.py')
@@ -26,7 +27,9 @@ class InstallTests(unittest.TestCase):
     def make_archive(self, extra=None, version='v0.10.0-rc.1', platform='linux_amd64'):
         files = {
             'manifest.json': json.dumps({'release': version, 'v8': '15.2.124.21',
-                                         'platform': platform}).encode(),
+                                         'platform': platform,
+                                         'source_provenance': source_provenance.expected_provenance(
+                                             native.ROOT, platform)}).encode(),
             'lib/libv8.a': b'!<arch>\n',
             'include/libcxx/vector': b'header',
         }
@@ -120,10 +123,20 @@ class InstallTests(unittest.TestCase):
 
     def test_ci_accepts_matching_sdk_fingerprint(self):
         manifest = {'release': 'v0.10.0-rc.1', 'v8': '15.2.124.21',
-                    'platform': 'linux_amd64', 'build_input_key': 'expected-key'}
+                    'platform': 'linux_amd64', 'build_input_key': 'expected-key',
+                    'source_provenance': source_provenance.expected_provenance(
+                        native.ROOT, 'linux_amd64')}
         with mock.patch.dict(os.environ, {'V8_BUILD_INPUT_KEY': 'expected-key'}):
             result = self.install(self.make_archive({'manifest.json': json.dumps(manifest).encode()}))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_cached_archive_without_source_attestation(self):
+        manifest = {'release': 'v0.10.0-rc.1', 'v8': '15.2.124.21',
+                    'platform': 'linux_amd64'}
+        result = self.install(self.make_archive({'manifest.json': json.dumps(manifest).encode()}))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('source provenance', result.stderr)
+        self.assertFalse(self.prefix.exists())
 
     def test_rejects_wrong_release(self):
         result = self.install(self.make_archive(version='v0.9.0'))

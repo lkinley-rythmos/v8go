@@ -39,7 +39,8 @@ def fingerprints(root, platform):
     toolchain = hash_inputs(root, ['deps/setup-linux-toolchains.sh', 'deps/rust-toolchain.json',
                                   'deps/llvm-version'], [])
     sdk = hash_inputs(root, [
-        'VERSION', 'LICENSE', 'deps/ci_cache.py', 'deps/native.py', 'deps/include',
+        'VERSION', 'LICENSE', 'deps/ci_cache.py', 'deps/native.py', 'deps/source_provenance.py',
+        'deps/source-provenance.json', 'deps/include',
         'deps/args/linux.gn', 'deps/v8_compile.sh', 'deps/patches',
         'deps/apply_musl_patch.py', 'deps/check_musl_commands.py',
         'deps/setup-musl-sysroot.sh', 'deps/Dockerfile.musl-sysroot',

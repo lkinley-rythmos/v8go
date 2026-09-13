@@ -200,5 +200,12 @@ The release workflow never automatically publishes a stable release. For
 the prerelease designation as part of publishing. The manual V8 version-check
 workflow only reports a candidate upgrade; it does not commit binary changes.
 
-Local packages made before committing have `v8go_dirty: true` in their manifest.
-Release packages should be built by CI from the tagged commit.
+`v8go_dirty` is the raw Git observation and is deliberately not normalized for
+musl: the required musl patch keeps it true. Package-time attestation requires
+a clean v8go/depot_tools checkout, unchanged root gitlinks, the complete
+committed V8/gclient repository revision set, no unexpected source changes, and
+exact hashes for every file in `linux-musl.json`. The manifest's
+`source_provenance` object contains `schema`, `state`, `v8_commit`,
+`patch_sha256`, `patch_manifest_sha256`, and `patched_files`; install rejects an
+absent or non-exact attestation, including from a cached archive. The `rc.4`
+tag and its assets remain untouched; build `rc.5` as a new candidate.
