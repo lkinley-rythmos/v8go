@@ -126,8 +126,10 @@ def _verified_nested_boundary(repository, relative, repositories):
     candidate = Path(relative)
     if candidate.is_absolute() or '..' in candidate.parts:
         return False
-    child = (repository / candidate).resolve()
-    return child in repositories and child.parent == repository.resolve()
+    child = repository / candidate
+    # Match the exact lexical child directory from committed metadata. Resolving
+    # first would let an untracked symlink alias a selected child checkout.
+    return not child.is_symlink() and child in repositories and child.parent == repository
 
 
 def _gitlink(root, name):

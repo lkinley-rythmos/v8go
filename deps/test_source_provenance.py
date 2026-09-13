@@ -129,6 +129,7 @@ class SourceProvenanceTests(unittest.TestCase):
             'extra-directory': lambda: (self.nested_parent / 'other').mkdir() or
             (self.nested_parent / 'other/file').write_text('untracked'),
             'escape': lambda: (self.nested_parent / 'escape').symlink_to(self.root),
+            'alias-selected-child': lambda: (self.nested_parent / 'alias').symlink_to('src'),
         }
         for name, mutate in cases.items():
             with self.subTest(name=name):
