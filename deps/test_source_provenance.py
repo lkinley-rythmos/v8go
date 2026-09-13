@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -31,19 +32,25 @@ class SourceProvenanceTests(unittest.TestCase):
         self._init_repo(self.v8 / 'build', ['config/BUILDCONFIG.gn'])
         self._init_repo(self.v8 / 'buildtools', ['third_party/libc++/__config_site'])
         self._init_repo(self.v8 / 'third_party/partition_alloc', ['partition_alloc.gni'])
+        self.extra = self.v8 / 'third_party/libc++/src'
+        self._init_repo(self.extra, ['README'])
+        self.depot = self.deps / 'depot_tools'
+        self._init_repo(self.depot, ['README'])
         (self.v8 / '.gitignore').write_text('build/\nbuildtools/\nthird_party/\n')
         subprocess.run(['git', 'add', '.gitignore'], cwd=self.v8, check=True)
         subprocess.run(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid',
                         'commit', '-qm', 'ignore gclient checkouts'], cwd=self.v8, check=True)
         self._write_patch_metadata()
         self._write_revision_pins()
+        self._init_root_repo()
 
     def _init_repo(self, directory, names):
         directory.mkdir(parents=True)
         for name in names:
             path = directory / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            source = self.files[next(key for key in self.files if key.endswith(name))][0]
+            source = next((before for key, (before, _) in self.files.items()
+                           if key.endswith(name)), b'initial\n')
             path.write_bytes(source)
         subprocess.run(['git', 'init', '-q'], cwd=directory, check=True)
         subprocess.run(['git', 'add', '.'], cwd=directory, check=True)
@@ -59,13 +66,31 @@ class SourceProvenanceTests(unittest.TestCase):
     def _write_revision_pins(self):
         entries = {}
         for path in (self.v8, self.v8 / 'build', self.v8 / 'buildtools',
-                     self.v8 / 'third_party/partition_alloc'):
+                     self.v8 / 'third_party/partition_alloc', self.extra):
             name = 'v8' + ('' if path == self.v8 else '/' + str(path.relative_to(self.v8)))
-            entries[name] = 'https://example.invalid/' + name + '@' + self._head(path)
-        (self.deps / '.gclient_entries').write_text('entries = ' + repr(entries) + '\n')
+            entries[name] = ('https://example.invalid/' + name if path == self.v8
+                             else 'https://example.invalid/' + name + '@' + self._head(path))
+        for profile in ('.gclient_entries', '.gclient-custom_entries'):
+            (self.deps / profile).write_text('entries = ' + repr(entries) + '\n')
+        (self.deps / '.gclient').write_text('default')
+        (self.deps / '.gclient-custom').write_text('custom')
         (self.deps / 'source-provenance.json').write_text(json.dumps({
-            'schema': 1, 'v8_commit': self._head(self.v8),
+            'schema': 1,
+            'v8_commit': self._head(self.v8),
+            'repositories': {'v8': self._head(self.v8), **{
+                name: value.rsplit('@', 1)[1] for name, value in entries.items() if name != 'v8'}},
         }))
+
+    def _init_root_repo(self):
+        subprocess.run(['git', 'init', '-q'], cwd=self.root, check=True)
+        subprocess.run(['git', 'add', 'deps/patches', 'deps/.gclient', 'deps/.gclient-custom',
+                        'deps/.gclient_entries', 'deps/.gclient-custom_entries',
+                        'deps/source-provenance.json'], cwd=self.root, check=True)
+        for name, path in (('deps/v8', self.v8), ('deps/depot_tools', self.depot)):
+            subprocess.run(['git', 'update-index', '--add', '--cacheinfo',
+                            f'160000,{self._head(path)},{name}'], cwd=self.root, check=True)
+        subprocess.run(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid',
+                        'commit', '-qm', 'root'], cwd=self.root, check=True)
 
     @staticmethod
     def _head(path):
@@ -86,6 +111,50 @@ class SourceProvenanceTests(unittest.TestCase):
         self.assertEqual(provenance, source_provenance.expected_provenance(self.root, 'linux_musl_amd64'))
         self.assertTrue(subprocess.check_output(['git', 'status', '--porcelain'],
                                                 cwd=self.v8 / 'build', text=True))
+
+    def test_uses_custom_entries_for_custom_toolchain_without_default_fallback(self):
+        (self.deps / '.gclient_entries').unlink()
+        self._commit_root('deps/.gclient_entries', 'remove default entries')
+        self.assertEqual(source_provenance.attest(self.root, 'linux_arm64')['state'], 'clean')
+        with self.assertRaisesRegex(ValueError, 'revision pins'):
+            source_provenance.attest(self.root, 'linux_amd64')
+
+    def test_rejects_root_or_depot_tools_changes(self):
+        for name, mutate in {
+            'root': lambda: (self.root / 'deps/patches/linux-musl.patch').write_text('edited'),
+            'depot': lambda: (self.depot / 'README').write_text('edited'),
+        }.items():
+            with self.subTest(name=name):
+                mutate()
+                with self.assertRaisesRegex(ValueError, 'source provenance'):
+                    source_provenance.attest(self.root, 'linux_amd64')
+                self.tearDown()
+                self.setUp()
+
+    def test_rejects_mutated_or_deleted_generated_pin_records_and_missing_repositories(self):
+        entries_path = self.deps / '.gclient_entries'
+        entries = eval(entries_path.read_text().split('=', 1)[1], {'__builtins__': {}})
+        entries['v8/build'] = 'https://example.invalid/v8/build@' + '0' * 40
+        entries_path.write_text('entries = ' + repr(entries) + '\n')
+        self._commit_root(entries_path.relative_to(self.root), 'mutated generated pin')
+        with self.assertRaisesRegex(ValueError, 'revision pins'):
+            source_provenance.attest(self.root, 'linux_amd64')
+        self.tearDown()
+        self.setUp()
+        (self.deps / '.gclient_entries').unlink()
+        self._commit_root('deps/.gclient_entries', 'deleted generated pins')
+        with self.assertRaisesRegex(ValueError, 'revision pins'):
+            source_provenance.attest(self.root, 'linux_amd64')
+        self.tearDown()
+        self.setUp()
+        shutil.rmtree(self.v8 / 'buildtools')
+        with self.assertRaisesRegex(ValueError, 'revision pins'):
+            source_provenance.attest(self.root, 'linux_amd64')
+
+    def _commit_root(self, path, message):
+        subprocess.run(['git', 'add', '-A', str(path)], cwd=self.root, check=True)
+        subprocess.run(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid',
+                        'commit', '-qm', message], cwd=self.root, check=True)
 
     def test_rejects_unexpected_source_changes_and_partial_or_changed_patch_files(self):
         cases = {
@@ -134,6 +203,25 @@ class SourceProvenanceTests(unittest.TestCase):
         expected['v8_commit'] = '0' * 40
         with self.assertRaisesRegex(ValueError, 'source provenance'):
             source_provenance.validate_manifest_provenance(expected, self.root, 'linux_musl_amd64')
+
+    def test_rejects_boolean_or_float_schema_values(self):
+        metadata_path = self.deps / 'source-provenance.json'
+        metadata = json.loads(metadata_path.read_text())
+        for value in (True, 1.0):
+            with self.subTest(value=value):
+                metadata['schema'] = value
+                metadata_path.write_text(json.dumps(metadata))
+                with self.assertRaisesRegex(ValueError, 'schema'):
+                    source_provenance.expected_provenance(self.root, 'linux_amd64')
+        metadata['schema'] = 1
+        metadata_path.write_text(json.dumps(metadata))
+        expected = source_provenance.expected_provenance(self.root, 'linux_amd64')
+        for value in (True, 1.0):
+            with self.subTest(value=value):
+                received = dict(expected)
+                received['schema'] = value
+                with self.assertRaisesRegex(ValueError, 'source provenance'):
+                    source_provenance.validate_manifest_provenance(received, self.root, 'linux_amd64')
 
 
 if __name__ == '__main__':

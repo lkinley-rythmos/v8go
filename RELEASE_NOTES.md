@@ -12,6 +12,8 @@ glibc or musl**; macOS packages are unavailable.
   observation; a verified musl patch is intentionally still dirty.
 - Reject cached or downloaded archives whose provenance is absent or does not
   exactly match this module's committed V8 revision and musl patch metadata.
+- Require a clean v8go and depot_tools checkout and the full pinned V8 source
+  repository set; the musl patch is the sole allowed source dirtiness.
 
 Library snapshots are for trusted local artifacts from trusted producers only.
 Checksums detect corruption but do not authenticate a producer or make an

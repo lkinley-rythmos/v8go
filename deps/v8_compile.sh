@@ -97,6 +97,9 @@ if [ "$target_libc" = musl ]; then
   : "${V8_MUSL_SYSROOT:?musl builds require an Alpine sysroot}"
   : "${V8_RUST_SYSROOT:?musl builds require a custom Rust toolchain}"
   python3 "$dir/apply_musl_patch.py"
+  package_arch="$target_cpu"
+  [ "$package_arch" = x64 ] && package_arch=amd64
+  python3 "$dir/source_provenance.py" --root "$dir/.." --platform "linux_musl_$package_arch"
   gn_args="$gn_args
 use_musl=true
 use_glib=false
