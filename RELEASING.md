@@ -39,7 +39,8 @@ settings. Each prefix is immutable; use a new prefix for a new installation.
 The installer verifies the release asset's SHA-256 and its release, platform,
 and engine version before installing. It generates `env.sh` locally. Source
 it once in each build shell. It supplies matching libc++ headers and library
-search paths. Existing `CC`/`CXX` values are respected; use Clang 22 for both.
+search paths. Existing `CC`/`CXX` values are respected; glibc consumers use
+Clang 22 for both. Alpine consumers follow the toolchain guidance below.
 Do not substitute system libstdc++ or system libc++ headers: V8 uses Chromium's
 custom libc++ ABI. The Go package reports this configuration error early.
 
@@ -58,9 +59,11 @@ defaults together, as in `deps/Dockerfile.test-musl`:
 
 ```sh
 apk add --no-cache build-base clang lld compiler-rt go python3 linux-headers binutils
+export CC=clang CXX=clang++
 ```
 
-Then use the same installer command above; it detects musl automatically. The
+Set these variables before sourcing the SDK environment, then use the same
+installer command above; it detects musl automatically. The
 SDK environment enables the matching libc++ musl configuration. Applications
 still dynamically link musl; fully static binaries and older Alpine releases
 are not part of this validation. `deps/Dockerfile.test-musl` supplies the CI
@@ -187,7 +190,7 @@ published release assets.
 3. Merge the reviewed changes, and tag the exact release commit with
    `v$(cat VERSION)`. Do not reuse a published version tag.
 4. Pushing the tag runs `release.yml`: it checks the tag against `VERSION`,
-   rebuilds and tests both packages, then creates a **draft prerelease** with
+   rebuilds and tests all four packages, then creates a **draft prerelease** with
    the archives, checksums, and `RELEASE_NOTES.md`.
 5. Review the draft and publish it. Draft assets are not publicly downloadable,
    so installation from a release URL must be smoke-tested after publication.
