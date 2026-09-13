@@ -1,0 +1,31 @@
+name: AMD64 snapshot and native-stack qualification
+
+on:
+  push:
+    branches: [qualification/native-amd64-snapshots-20260911]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: amd64-qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux_amd64
+            libc: glibc
+          - platform: linux_musl_amd64
+            libc: musl
+    uses: ./.github/workflows/native-platform.yml
+    with:
+      arch: x64
+      runner: ubuntu-24.04
+      platform: ${{ matrix.platform }}
+      libc: ${{ matrix.libc }}
+      extended-amd64-checks: true

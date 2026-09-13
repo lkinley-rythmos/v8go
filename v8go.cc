@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "v8go.h"
+#include "snapshot.h"
 
 #if !defined(__linux__)
 #error "This release candidate supports Linux only; see RELEASING.md."
@@ -33,6 +34,9 @@ const int ScriptCompilerConsumeCodeCache = ScriptCompiler::kConsumeCodeCache;
 const int ScriptCompilerEagerCompile = ScriptCompiler::kEagerCompile;
 
 struct m_ctx {
+  StartupData* snapshot = nullptr;
+  std::vector<Global<Name>> late_globals;
+  std::vector<Global<Name>> protected_globals;
   Isolate* iso;
   std::unordered_map<long, m_value*> vals;
   std::vector<m_unboundScript*> unboundScripts;
@@ -134,6 +138,9 @@ m_unboundScript* tracked_unbound_script(m_ctx* ctx, m_unboundScript* us) {
   return us;
 }
 
+// Private trusted-artifact snapshot extension; use rc.3 public V8 headers.
+#include "snapshot_native.h"
+
 extern "C" {
 
 /********** Isolate **********/
@@ -195,9 +202,14 @@ void IsolateDispose(IsolatePtr iso) {
   if (iso == nullptr) {
     return;
   }
+  StartupData* snapshot = isolateInternalContext(iso)->snapshot;
   ContextFree(isolateInternalContext(iso));
 
   iso->Dispose();
+  if (snapshot != nullptr) {
+    delete[] snapshot->data;
+    delete snapshot;
+  }
 }
 
 void IsolateTerminateExecution(IsolatePtr iso) {

@@ -83,6 +83,27 @@ class InstallTests(unittest.TestCase):
         self.assertIn('checksum', result.stderr.lower())
         self.assertFalse(self.prefix.exists())
 
+    def test_environment_sets_musl_stack_after_preserved_linker_flags(self):
+        for target in ('linux_musl_amd64', 'linux_musl_arm64',
+                       'linux_amd64', 'linux_arm64'):
+            env_file = self.root / 'env.sh'
+            env_file.write_text(native.environment(self.prefix, target))
+            for supplied in (None, '', '-Wl,--as-needed -Wl,-z,stack-size=131072'):
+                with self.subTest(target=target, supplied=supplied):
+                    env = os.environ.copy()
+                    env.pop('CGO_LDFLAGS', None)
+                    if supplied is not None:
+                        env['CGO_LDFLAGS'] = supplied
+                    result = subprocess.run(
+                        ['sh', '-c', '. "$1"; printf "%s" "$CGO_LDFLAGS"',
+                         'sh', str(env_file)], env=env, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected = ['-L' + str(self.prefix / 'lib'), '-fuse-ld=lld']
+                    expected += (supplied or '').split()
+                    if target.startswith('linux_musl_'):
+                        expected += ['-Wl,-z,stack-size=8388608']
+                    self.assertEqual(result.stdout.split(), expected)
+
     def test_rejects_archive_path_traversal(self):
         result = self.install(self.make_archive({'../escaped': b'bad'}))
         self.assertNotEqual(result.returncode, 0)

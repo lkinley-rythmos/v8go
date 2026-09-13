@@ -135,3 +135,20 @@
 +    __has_include(<sys/ifunc.h>)
  #define HAS_HW_CAPS
  #endif
+--- a/src/base/platform/platform.cc
++++ b/src/base/platform/platform.cc
+@@ -28,5 +28,14 @@
+ // static
+ Stack::StackSlot Stack::GetReservedStackLimit() {
++#if V8_OS_LINUX && defined(V8GO_USE_MUSL)
++  // musl reports only the initial mapping for the growable main stack.
++  // Treat its reserved bound as unavailable so the existing central-stack
++  // view (including its safety margin) applies instead of a stale mapping.
++  // Created pthreads have fixed stacks and retain the normal cached bound.
++  if (OS::GetCurrentThreadId() == OS::GetCurrentProcessId()) {
++    return nullptr;
++  }
++#endif
+   if (!thread_reserved_stack_limit) {
+     thread_reserved_stack_limit = ObtainCurrentThreadStackReservedLimit();
+   }

@@ -1,7 +1,7 @@
 # Building and releasing this fork
 
 The module is `github.com/lkinley-rythmos/v8go`. `VERSION` records the v8go
-release candidate (`0.10.0-rc.3`); `deps/VERSION` records the embedded V8
+release candidate (`0.10.0-rc.4`); `deps/VERSION` records the embedded V8
 version (`15.2.124.21`). Update the engine pin, dependency pin, headers, and
 native packages together. This RC targets Linux amd64 and arm64 with
 glibc and musl. macOS support requires matching builds and tests before it can return.
@@ -19,13 +19,13 @@ Start in a clean shell when upgrading SDKs: flags from a previously sourced
 `env.sh` are preserved as explicit overrides. Use a fresh installation prefix.
 
 ```sh
-go mod download github.com/lkinley-rythmos/v8go@v0.10.0-rc.3
-v8go_module=$(go env GOMODCACHE)/github.com/lkinley-rythmos/v8go@v0.10.0-rc.3
+go mod download github.com/lkinley-rythmos/v8go@v0.10.0-rc.4
+v8go_module=$(go env GOMODCACHE)/github.com/lkinley-rythmos/v8go@v0.10.0-rc.4
 python3 "$v8go_module/deps/native.py" install \
-  --release v0.10.0-rc.3 \
-  --prefix "$HOME/.local/share/v8go/v0.10.0-rc.3"
-. "$HOME/.local/share/v8go/v0.10.0-rc.3/env.sh"
-go get github.com/lkinley-rythmos/v8go@v0.10.0-rc.3
+  --release v0.10.0-rc.4 \
+  --prefix "$HOME/.local/share/v8go/v0.10.0-rc.4"
+. "$HOME/.local/share/v8go/v0.10.0-rc.4/env.sh"
+go get github.com/lkinley-rythmos/v8go@v0.10.0-rc.4
 go test ./...
 ```
 
@@ -39,7 +39,8 @@ settings. Each prefix is immutable; use a new prefix for a new installation.
 The installer verifies the release asset's SHA-256 and its release, platform,
 and engine version before installing. It generates `env.sh` locally. Source
 it once in each build shell. It supplies matching libc++ headers and library
-search paths. Existing `CC`/`CXX` values are respected; use Clang 22 for both.
+search paths. Existing `CC`/`CXX` values are respected; glibc consumers use
+Clang 22 for both. Alpine consumers follow the toolchain guidance below.
 Do not substitute system libstdc++ or system libc++ headers: V8 uses Chromium's
 custom libc++ ABI. The Go package reports this configuration error early.
 
@@ -51,17 +52,65 @@ be substituted for a musl archive.
 
 ### Alpine consumers
 
-Alpine 3.24.1 and edge are tested on both amd64 and ARM64. Install prerequisites:
+Alpine 3.24.1 and edge are tested on both amd64 and ARM64. The stable
+Alpine 3.24.1 consumer uses its distribution Clang/LLD 22 packages; the edge
+consumer uses its distribution Clang/LLD 23 packages. Install the distribution
+defaults together, as in `deps/Dockerfile.test-musl`:
 
 ```sh
-apk add --no-cache build-base clang22 lld22 go python3
+apk add --no-cache build-base clang lld compiler-rt go python3 linux-headers binutils
+export CC=clang CXX=clang++
 ```
 
-Then use the same installer command above; it detects musl automatically. The
+Set these variables before sourcing the SDK environment, then use the same
+installer command above; it detects musl automatically. The
 SDK environment enables the matching libc++ musl configuration. Applications
 still dynamically link musl; fully static binaries and older Alpine releases
 are not part of this validation. `deps/Dockerfile.test-musl` supplies the CI
 consumer environment, including the sanitizer package for leak checks.
+
+The generated musl environment appends `-Wl,-z,stack-size=8388608` after
+preserved user `CGO_LDFLAGS`. This sets the executable's `PT_GNU_STACK` size
+to 8 MiB, matching the observed glibc default and leaving native stack
+headroom for V8 recursion and Go callbacks that re-enter JavaScript. Go's
+cgo-created threads use the default pthread attributes; musl's smaller
+default can otherwise exhaust the native stack before V8 reports a
+JavaScript `RangeError`. The JavaScript stack budget is unchanged.
+The default pthread stack reservation applies process-wide, including
+threads that do not execute V8; reserved virtual address space is not
+equivalent to resident memory (RSS).
+
+This setting covers default threads in supported dynamically linked musl Go
+executables. Arbitrary custom pthread stacks and builds that override the
+final linker setting are not guaranteed. Existing SDK installations and
+already built executables are unchanged: generate a fresh SDK environment
+with the corrected installer, source it in a clean shell, and rebuild the
+application. glibc environment output is unchanged.
+
+The native regression gate reserves the initial process thread and checks
+capacity on multiple simultaneously locked cgo-created pthreads before
+running ordinary scripts, unbound scripts, and
+Go callbacks that re-enter recursive JavaScript. Each path must return a
+typed `JSError` containing `RangeError` and allow subsequent evaluation.
+Native amd64 musl and glibc qualification does not replace the remaining
+native ARM64 and Alpine edge runtime gates; all release matrix targets
+must pass before publication.
+
+The musl native source patch also treats the initial Linux process thread's
+reserved lower stack bound as unavailable. musl reports that growable
+stack's initial mapping, which is not a valid permanent lower bound. V8
+then uses its existing central-stack view and safety margin; JavaScript
+stack limits and `IsOnCentralStack` checks remain enabled. Fixed pthread
+stacks and glibc retain their existing reserved-bound behavior. The release
+consumer gate locks the initial thread, primes exception handling at shallow
+depth, and requires 100 recursive `RangeError` results with recovery, both
+with module replacement and with vendoring.
+
+This native correction requires rebuilding the musl archive and relinking
+consumers; re-sourcing an environment alone cannot change existing native
+code. Previously published RC archives are unchanged. Locally modified
+archives must carry distinct candidate provenance and must not be relabeled
+as those published bytes.
 
 ### Building musl packages
 
@@ -76,6 +125,9 @@ patch in `deps/patches/linux-musl.patch`. Review and regenerate this patch when
 upgrading V8; an unexpected source revision fails the build instead of silently
 applying a partial patch. It is safe to rerun against an already patched tree.
 The patch leaves glibc behavior as the default.
+An existing checkout with an older version of the musl patch must be restored
+to the pinned inputs before applying an expanded patch; mixed before/after
+source hashes are rejected.
 
 Musl outputs are `deps/v8/out/release-musl` and
 `deps/v8/out/release-arm64-musl`. Package them with `native.py package --platform
@@ -115,8 +167,8 @@ Public V8 headers remain in the module for normal cgo compilation and vendoring.
 To test a local package, provide its archive and checksum explicitly:
 
 ```sh
-archive=.build/dist/v8go_v0.10.0-rc.3_linux_amd64.tar.gz
-python3 deps/native.py install --release v0.10.0-rc.3 \
+archive=.build/dist/v8go_v0.10.0-rc.4_linux_amd64.tar.gz
+python3 deps/native.py install --release v0.10.0-rc.4 \
   --platform linux_amd64 --archive "$archive" \
   --sha256 "$(cut -d ' ' -f 1 "$archive.sha256")" --prefix .build/sdk
 . .build/sdk/env.sh
@@ -126,13 +178,19 @@ go test -count=1 -tags leakcheck .
 
 ## Release sequence
 
+The ARM64 and AMD64 snapshot/native-stack qualification gates have passed for
+this candidate. They are qualification evidence, not release assets: the tag's
+release matrix must rebuild the four Linux packages and pass every native and
+consumer gate before a draft release is created. Candidate CI packages are not
+published release assets.
+
 1. Push the preparation branch and review its PR against this fork's `master`.
 2. Require the CI native builds, full binding tests, and leak checks on both
    Linux architectures to pass. The workflow uses native ARM64 runners.
 3. Merge the reviewed changes, and tag the exact release commit with
    `v$(cat VERSION)`. Do not reuse a published version tag.
 4. Pushing the tag runs `release.yml`: it checks the tag against `VERSION`,
-   rebuilds and tests both packages, then creates a **draft prerelease** with
+   rebuilds and tests all four packages, then creates a **draft prerelease** with
    the archives, checksums, and `RELEASE_NOTES.md`.
 5. Review the draft and publish it. Draft assets are not publicly downloadable,
    so installation from a release URL must be smoke-tested after publication.

@@ -38,9 +38,13 @@ EOF
 go mod tidy
 go build -o consumer .
 ./consumer "$engine"
+go build -o initial-thread "$repo/deps/testdata/initial_thread.go"
+./initial-thread
 go mod vendor
 go build -mod=vendor -o consumer .
 ./consumer "$engine"
+go build -mod=vendor -o initial-thread "$repo/deps/testdata/initial_thread.go"
+./initial-thread
 case "${TARGET_PLATFORM:-}" in
   linux_musl_*)
     readelf -l consumer | grep -q 'ld-musl-'

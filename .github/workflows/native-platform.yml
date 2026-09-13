@@ -15,6 +15,14 @@ on:
       libc:
         required: true
         type: string
+      extended-arm64-checks:
+        required: false
+        type: boolean
+        default: false
+      extended-amd64-checks:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -108,10 +116,14 @@ jobs:
         with:
           path: .build/docker-cache
           key: ${{ steps.image-cache.outputs.cache-primary-key }}
-      - name: Identify consumer compiler versions
+      - name: Verify and identify consumer toolchain
         id: consumer-key
+        shell: bash
         run: |
-          fingerprint=$(docker run --rm v8go-consumer sh -ec 'go version; clang-22 --version; ldd --version 2>&1 || true' | sha256sum | cut -d ' ' -f 1)
+          docker run --rm \
+            --mount "type=bind,src=$PWD/deps/test-consumer-toolchain.sh,dst=/test-consumer-toolchain.sh,readonly" \
+            v8go-consumer sh /test-consumer-toolchain.sh | tee .build/consumer-toolchain.txt
+          fingerprint=$(sha256sum .build/consumer-toolchain.txt | cut -d ' ' -f 1)
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
       - name: Restore consumer Go caches
         id: go-cache
@@ -128,6 +140,36 @@ jobs:
           TARGET_PLATFORM: ${{ inputs.platform }}
           V8_BUILD_INPUT_KEY: ${{ needs.build.outputs.sdk-key }}
         run: bash deps/test-native-package.sh
+      - name: Qualify native ARM64 races and stack recovery
+        if: ${{ inputs.extended-arm64-checks }}
+        run: |
+          test "$(uname -m)" = aarch64
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,src=$PWD,dst=/workspace" \
+            -e GOCACHE=/workspace/.build/go-cache \
+            -e GOMODCACHE=/workspace/.build/go-mod \
+            v8go-consumer sh -ec '
+              test "$(uname -m)" = aarch64
+              . .build/sdk/env.sh
+              go test -race -count=1 ./...
+              go vet ./...
+              go test -race -count=100 ./internal/nativestack
+            '
+      - name: Qualify native AMD64 races and stack recovery
+        if: ${{ inputs.extended-amd64-checks }}
+        run: |
+          test "$(uname -m)" = x86_64
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,src=$PWD,dst=/workspace" \
+            -e GOCACHE=/workspace/.build/go-cache \
+            -e GOMODCACHE=/workspace/.build/go-mod \
+            v8go-consumer sh -ec '
+              test "$(uname -m)" = x86_64
+              . .build/sdk/env.sh
+              go test -race -count=1 ./...
+              go vet ./...
+              go test -race -count=100 ./internal/nativestack
+            '
       - name: Save consumer Go caches
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         uses: actions/cache/save@v5
