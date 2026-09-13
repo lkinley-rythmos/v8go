@@ -1,7 +1,7 @@
 # Building and releasing this fork
 
 The module is `github.com/lkinley-rythmos/v8go`. `VERSION` records the v8go
-release candidate (`0.10.0-rc.4`); `deps/VERSION` records the embedded V8
+release candidate (`0.10.0-rc.6`); `deps/VERSION` records the embedded V8
 version (`15.2.124.21`). Update the engine pin, dependency pin, headers, and
 native packages together. This RC targets Linux amd64 and arm64 with
 glibc and musl. macOS support requires matching builds and tests before it can return.
@@ -19,13 +19,13 @@ Start in a clean shell when upgrading SDKs: flags from a previously sourced
 `env.sh` are preserved as explicit overrides. Use a fresh installation prefix.
 
 ```sh
-go mod download github.com/lkinley-rythmos/v8go@v0.10.0-rc.4
-v8go_module=$(go env GOMODCACHE)/github.com/lkinley-rythmos/v8go@v0.10.0-rc.4
+go mod download github.com/lkinley-rythmos/v8go@v0.10.0-rc.6
+v8go_module=$(go env GOMODCACHE)/github.com/lkinley-rythmos/v8go@v0.10.0-rc.6
 python3 "$v8go_module/deps/native.py" install \
-  --release v0.10.0-rc.4 \
-  --prefix "$HOME/.local/share/v8go/v0.10.0-rc.4"
-. "$HOME/.local/share/v8go/v0.10.0-rc.4/env.sh"
-go get github.com/lkinley-rythmos/v8go@v0.10.0-rc.4
+  --release v0.10.0-rc.6 \
+  --prefix "$HOME/.local/share/v8go/v0.10.0-rc.6"
+. "$HOME/.local/share/v8go/v0.10.0-rc.6/env.sh"
+go get github.com/lkinley-rythmos/v8go@v0.10.0-rc.6
 go test ./...
 ```
 
@@ -167,8 +167,8 @@ Public V8 headers remain in the module for normal cgo compilation and vendoring.
 To test a local package, provide its archive and checksum explicitly:
 
 ```sh
-archive=.build/dist/v8go_v0.10.0-rc.4_linux_amd64.tar.gz
-python3 deps/native.py install --release v0.10.0-rc.4 \
+archive=.build/dist/v8go_v0.10.0-rc.6_linux_amd64.tar.gz
+python3 deps/native.py install --release v0.10.0-rc.6 \
   --platform linux_amd64 --archive "$archive" \
   --sha256 "$(cut -d ' ' -f 1 "$archive.sha256")" --prefix .build/sdk
 . .build/sdk/env.sh
@@ -208,4 +208,4 @@ exact hashes for every file in `linux-musl.json`. The manifest's
 `source_provenance` object contains `schema`, `state`, `v8_commit`,
 `patch_sha256`, `patch_manifest_sha256`, and `patched_files`; install rejects an
 absent or non-exact attestation, including from a cached archive. The `rc.4`
-tag and its assets remain untouched; build `rc.5` as a new candidate.
+and `rc.5` tags and assets remain untouched; build `rc.6` as a new candidate.

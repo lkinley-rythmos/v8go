@@ -97,9 +97,6 @@ if [ "$target_libc" = musl ]; then
   : "${V8_MUSL_SYSROOT:?musl builds require an Alpine sysroot}"
   : "${V8_RUST_SYSROOT:?musl builds require a custom Rust toolchain}"
   python3 "$dir/apply_musl_patch.py"
-  package_arch="$target_cpu"
-  [ "$package_arch" = x64 ] && package_arch=amd64
-  python3 "$dir/source_provenance.py" --root "$dir/.." --platform "linux_musl_$package_arch"
   gn_args="$gn_args
 use_musl=true
 use_glib=false
@@ -107,6 +104,12 @@ target_sysroot=\"$V8_MUSL_SYSROOT\"
 host_toolchain=\"//build/toolchain/linux:clang_${target_cpu}_glibc\"
 v8_snapshot_toolchain=\"//build/toolchain/linux:clang_${target_cpu}_glibc\""
 fi
+
+package_arch="$target_cpu"
+[ "$package_arch" = x64 ] && package_arch=amd64
+package_platform="linux_$package_arch"
+[ "$target_libc" = musl ] && package_platform="linux_musl_$package_arch"
+python3 "$dir/source_provenance.py" --root "$dir/.." --platform "$package_platform"
 
 cd "${dir}/v8"
 

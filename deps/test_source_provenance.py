@@ -34,6 +34,10 @@ class SourceProvenanceTests(unittest.TestCase):
         self._init_repo(self.v8 / 'third_party/partition_alloc', ['partition_alloc.gni'])
         self.extra = self.v8 / 'third_party/libc++/src'
         self._init_repo(self.extra, ['README'])
+        self.nested_parent = self.v8 / 'third_party/fuzztest'
+        self._init_repo(self.nested_parent, ['README'])
+        self.nested_child = self.nested_parent / 'src'
+        self._init_repo(self.nested_child, ['README'])
         self.depot = self.deps / 'depot_tools'
         self._init_repo(self.depot, ['README'])
         (self.v8 / '.gitignore').write_text('build/\nbuildtools/\nthird_party/\n')
@@ -70,6 +74,9 @@ class SourceProvenanceTests(unittest.TestCase):
             name = 'v8' + ('' if path == self.v8 else '/' + str(path.relative_to(self.v8)))
             entries[name] = ('https://example.invalid/' + name if path == self.v8
                              else 'https://example.invalid/' + name + '@' + self._head(path))
+        for path in (self.nested_parent, self.nested_child):
+            name = 'v8/' + str(path.relative_to(self.v8))
+            entries[name] = 'https://example.invalid/' + name + '@' + self._head(path)
         for profile in ('.gclient_entries', '.gclient-custom_entries'):
             (self.deps / profile).write_text('entries = ' + repr(entries) + '\n')
         (self.deps / '.gclient').write_text('default')
@@ -111,6 +118,32 @@ class SourceProvenanceTests(unittest.TestCase):
         self.assertEqual(provenance, source_provenance.expected_provenance(self.root, 'linux_musl_amd64'))
         self.assertTrue(subprocess.check_output(['git', 'status', '--porcelain'],
                                                 cwd=self.v8 / 'build', text=True))
+
+    def test_allows_only_a_clean_verified_nested_repository_boundary(self):
+        self.assertEqual(source_provenance.attest(self.root, 'linux_amd64')['state'], 'clean')
+
+    def test_rejects_dirty_wrong_pinned_extra_or_escaping_nested_boundaries(self):
+        cases = {
+            'dirty-child': lambda: (self.nested_child / 'README').write_text('dirty'),
+            'wrong-pin': self._commit_nested_child,
+            'extra-directory': lambda: (self.nested_parent / 'other').mkdir() or
+            (self.nested_parent / 'other/file').write_text('untracked'),
+            'escape': lambda: (self.nested_parent / 'escape').symlink_to(self.root),
+            'alias-selected-child': lambda: (self.nested_parent / 'alias').symlink_to('src'),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                mutate()
+                with self.assertRaisesRegex(ValueError, 'source provenance'):
+                    source_provenance.attest(self.root, 'linux_amd64')
+                self.tearDown()
+                self.setUp()
+
+    def _commit_nested_child(self):
+        (self.nested_child / 'README').write_text('different revision')
+        subprocess.run(['git', 'add', 'README'], cwd=self.nested_child, check=True)
+        subprocess.run(['git', '-c', 'user.name=test', '-c', 'user.email=test@example.invalid',
+                        'commit', '-qm', 'different revision'], cwd=self.nested_child, check=True)
 
     def test_uses_custom_entries_for_custom_toolchain_without_default_fallback(self):
         (self.deps / '.gclient_entries').unlink()
